@@ -396,17 +396,17 @@ export async function syncEvernileRubrics(force = false) {
 
 /** Canonical analyst roster (names you provided). Not demo reviews/projects. */
 const CORE_EMPLOYEES = [
-  ["Abhinav Dasgupta", "Investment Banking", "AD", 92, 96],
-  ["Banala Dinesh", "Consulting", "BD", 86, 91],
-  ["Devyansh Rajput", "Investment Banking", "DR", 83, 88],
-  ["Dhritiman Mitra", "Deal Advisory", "DM", 80, 86],
-  ["Mayank Yadav", "Deal Advisory", "MY", 74, 82],
-  ["Rishabh Mannari", "Research", "RM", 71, 80],
-  ["Rudransh Bhardwaj", "Investment Banking", "RB", 68, 77],
-  ["Sahil Sachdeva", "Deal Advisory", "SS", 62, 74],
-  ["Sumit Pandey", "Consulting", "SP", 58, 72],
-  ["Tarun Kumar", "Research", "TK", 52, 69],
-  ["Varun Jhaveri", "Research", "VJ", 46, 65],
+  ["Abhinav Dasgupta", "Investment Banking", "AD", 0, 0],
+  ["Banala Dinesh", "Consulting", "BD", 0, 0],
+  ["Devyansh Rajput", "Investment Banking", "DR", 0, 0],
+  ["Dhritiman Mitra", "Deal Advisory", "DM", 0, 0],
+  ["Mayank Yadav", "Deal Advisory", "MY", 0, 0],
+  ["Rishabh Mannari", "Research", "RM", 0, 0],
+  ["Rudransh Bhardwaj", "Investment Banking", "RB", 0, 0],
+  ["Sahil Sachdeva", "Deal Advisory", "SS", 0, 0],
+  ["Sumit Pandey", "Consulting", "SP", 0, 0],
+  ["Tarun Kumar", "Research", "TK", 0, 0],
+  ["Varun Jhaveri", "Research", "VJ", 0, 0],
 ];
 
 /** Firm admins — these emails are always role=admin (password + Google). */

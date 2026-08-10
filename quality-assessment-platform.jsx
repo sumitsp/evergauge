@@ -403,9 +403,9 @@ function qualityStreakData(reviews) {
 
 function Dashboard({ go }) {
   const { employees = [], reviews = [], analytics = {}, kpis } = useData();
-  const distribution = analytics.distribution?.length ? analytics.distribution : DISTRIBUTION;
-  const monthly = analytics.monthly?.length ? analytics.monthly : MONTHLY;
-  const docPerf = analytics.docPerf?.length ? analytics.docPerf : DOC_PERF;
+  const distribution = analytics.distribution?.length ? analytics.distribution : [];
+  const monthly = analytics.monthly?.length ? analytics.monthly : [];
+  const docPerf = analytics.docPerf?.length ? analytics.docPerf : [];
   const evaluated = employees.filter((e) => Number(e.reviews) > 0 && e.avg != null && Number(e.avg) > 0);
   const leaders = [...evaluated].sort((a, b) => Number(b.avg || 0) - Number(a.avg || 0)).slice(0, 5);
   const top = leaders[0];
@@ -469,27 +469,35 @@ function Dashboard({ go }) {
         <div className="qa-card reveal">
           <CardHead title="Quality distribution" sub={`${distTotal} scored deliverables`} />
           <div style={{ height: 240, position: "relative" }}>
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie data={distribution} dataKey="value" innerRadius={62} outerRadius={92} paddingAngle={3} stroke="none">
-                  {distribution.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip content={<Tip suffix=" docs" />} cursor={false} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="qa-donut-center">
-              <div className="qa-donut-num">{passPct}%</div>
-              <div className="qa-donut-cap">score ≥ 3.0</div>
+            {distribution.length ? (
+              <>
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie data={distribution} dataKey="value" innerRadius={62} outerRadius={92} paddingAngle={3} stroke="none">
+                      {distribution.map((d, i) => <Cell key={i} fill={d.color} />)}
+                    </Pie>
+                    <Tooltip content={<Tip suffix=" docs" />} cursor={false} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="qa-donut-center">
+                  <div className="qa-donut-num">{passPct}%</div>
+                  <div className="qa-donut-cap">score ≥ 3.0</div>
+                </div>
+              </>
+            ) : (
+              <div className="qa-empty-chart">No scored deliverables yet.</div>
+            )}
+          </div>
+          {!!distribution.length && (
+            <div className="qa-legend">
+              {distribution.map((d) => (
+                <div key={d.name} className="qa-legend-item">
+                  <span className="qa-dot" style={{ background: d.color }} /> {d.name}
+                  <b>{d.value}</b>
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="qa-legend">
-            {distribution.map((d) => (
-              <div key={d.name} className="qa-legend-item">
-                <span className="qa-dot" style={{ background: d.color }} /> {d.name}
-                <b>{d.value}</b>
-              </div>
-            ))}
-          </div>
+          )}
         </div>
 
         <div className="qa-card reveal">
@@ -547,38 +555,46 @@ function Dashboard({ go }) {
         <div className="qa-card reveal">
           <CardHead title="Average quality — monthly trend" sub="Rolling 8 months · 2026" />
           <div style={{ height: 264 }}>
-            <ResponsiveContainer>
-              <AreaChart data={monthly} margin={{ top: 10, right: 12, left: -18, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="trend" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={C.blue} stopOpacity={0.28} />
-                    <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
-                <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis domain={[3.5, 4.5]} tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
-                <Area type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} fill="url(#trend)" dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {monthly.length ? (
+              <ResponsiveContainer>
+                <AreaChart data={monthly} margin={{ top: 10, right: 12, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="trend" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={C.blue} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
+                  <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[3.5, 4.5]} tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
+                  <Area type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} fill="url(#trend)" dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="qa-empty-chart">No monthly trend yet — scores appear after reviews are completed.</div>
+            )}
           </div>
         </div>
 
         <div className="qa-card reveal">
           <CardHead title="Performance by document type" sub="Average score across the house" />
           <div style={{ height: 264 }}>
-            <ResponsiveContainer>
-              <BarChart data={docPerf} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
-                <XAxis dataKey="t" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, 5]} tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
-                <Bar dataKey="score" radius={[6, 6, 0, 0]} maxBarSize={34} activeBar={false}>
-                  {docPerf.map((d, i) => <Cell key={i} fill={scoreColor(d.score)} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {docPerf.length ? (
+              <ResponsiveContainer>
+                <BarChart data={docPerf} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
+                  <XAxis dataKey="t" tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 5]} tick={{ fill: C.faint, fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
+                  <Bar dataKey="score" radius={[6, 6, 0, 0]} maxBarSize={34} activeBar={false}>
+                    {docPerf.map((d, i) => <Cell key={i} fill={scoreColor(d.score)} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="qa-empty-chart">No document-type scores yet.</div>
+            )}
           </div>
         </div>
       </div>
@@ -1689,17 +1705,20 @@ function Employees() {
   const e = detail || employees.find((x) => x.name === sel) || employees[0];
   if (!e) return <div className="qa-card reveal">No employees in database yet.</div>;
 
-  const trend = detail?.monthly?.length
-    ? detail.monthly
-    : MONTHLY.map((m, i) => ({ m: m.m, score: +(Math.max(1, Math.min(5, e.avg - 0.5 + i * 0.06))).toFixed(2) }));
-  const rubricBreak = (detail?.rubric?.length ? detail.rubric : RUBRIC.map((r, i) => ({
-    dim: r.key.split(" ")[0], full: r.key, score: +(Math.min(5, Math.max(1, e.avg + ((i % 3) - 1) * 0.3))).toFixed(1),
-  }))).map((r) => ({ dim: r.dim || r.key.split(" ")[0], full: r.full || r.key, score: Number(r.score) }));
+  const trend = detail?.monthly?.length ? detail.monthly : [];
+  const rubricBreak = (detail?.rubric?.length ? detail.rubric : []).map((r) => ({
+    dim: r.dim || r.key?.split(" ")[0],
+    full: r.full || r.key,
+    score: Number(r.score),
+  }));
   const history = detail?.history || [];
   const coaching = detail?.coaching || [];
   const rubricRows = activeRubric.length ? activeRubric : rubricBreak;
   const strongest = [...rubricRows].sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 3);
   const weakest = [...rubricRows].sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 3);
+  const hasScores = Number(e.reviews) > 0;
+  const readyPct = hasScores ? Number(e.ready || 0) : 0;
+  const consistencyPct = hasScores ? Number(e.consistency || 0) : 0;
 
   const addCoach = async () => {
     if (!coachNote.trim() || savingCoach) return;
@@ -1742,8 +1761,8 @@ function Employees() {
               <div key={k}><b>{v}</b><span>{k}</span></div>
             ))}
           </div>
-          <Gauge2 label="Promotion readiness" value={Number(e.ready)} color={C.blue} />
-          <Gauge2 label="Consistency index" value={Number(e.consistency)} color={C.emerald} />
+          <Gauge2 label="Promotion readiness" value={readyPct} color={C.blue} />
+          <Gauge2 label="Consistency index" value={consistencyPct} color={C.emerald} />
           <div className="qa-profile-trend">
             <span>Improvement trend</span>
             <b className={e.trend >= 0 ? "up" : "down"}>{e.trend >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {e.trend >= 0 ? "+" : ""}{e.trend}</b>
@@ -1757,15 +1776,19 @@ function Employees() {
                 <div className="qa-card reveal">
                   <CardHead title="Monthly score trend" sub="From MySQL review history" />
                   <div style={{ height: 210 }}>
-                    <ResponsiveContainer>
-                      <LineChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
-                        <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
-                        <Line type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    {trend.length ? (
+                      <ResponsiveContainer>
+                        <LineChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
+                          <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
+                          <Line type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="qa-empty-chart">No monthly scores yet.</div>
+                    )}
                   </div>
                 </div>
                 <RubricBarsCard
@@ -1779,11 +1802,15 @@ function Employees() {
               <div className="qa-grid-2">
                 <div className="qa-card reveal qa-insight strong">
                   <div className="qa-insight-head"><Star size={16} color={C.emerald} /> Strongest rubrics</div>
-                  {strongest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.emerald} />)}
+                  {strongest.length
+                    ? strongest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.emerald} />)
+                    : <div className="qa-muted">No rubric scores yet.</div>}
                 </div>
                 <div className="qa-card reveal qa-insight weak">
                   <div className="qa-insight-head"><Target size={16} color={C.amber} /> Weakest rubrics</div>
-                  {weakest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.amber} />)}
+                  {weakest.length
+                    ? weakest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.amber} />)
+                    : <div className="qa-muted">No rubric scores yet.</div>}
                 </div>
               </div>
             </>
@@ -1937,11 +1964,13 @@ function RubricBarsCard({ title, sub, byDocType, fallbackRows, onActiveRows }) {
 /* ============================ ANALYTICS ============================ */
 function Analytics() {
   const { employees, analytics, docTypes } = useData();
-  const scatter = employees.map((e) => ({ x: e.reviews, y: e.avg, z: e.projects, name: e.name }));
-  const improved = [...employees].sort((a, b) => b.trend - a.trend).slice(0, 5);
-  const weakAreas = analytics.weakAreas?.length
-    ? analytics.weakAreas.slice(0, 6)
-    : RUBRIC.map((r, i) => ({ area: r.key.split(" ")[0], full: r.key, gap: +(0.4 + (i % 5) * 0.18).toFixed(2) }));
+  const scoredEmployees = employees.filter((e) => Number(e.reviews) > 0);
+  const scatter = scoredEmployees.map((e) => ({ x: e.reviews, y: e.avg, z: e.projects, name: e.name }));
+  const improved = [...scoredEmployees]
+    .filter((e) => Number(e.trend) !== 0)
+    .sort((a, b) => b.trend - a.trend)
+    .slice(0, 5);
+  const weakAreas = analytics.weakAreas?.length ? analytics.weakAreas.slice(0, 6) : [];
 
   return (
     <div className="qa-stack">
@@ -1961,31 +1990,39 @@ function Analytics() {
         <div className="qa-card reveal">
           <CardHead title="Score vs. volume" sub="Bubble size = projects delivered" />
           <div style={{ height: 300 }}>
-            <ResponsiveContainer>
-              <ScatterChart margin={{ top: 10, right: 16, left: -14, bottom: 6 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
-                <XAxis type="number" dataKey="x" name="Reviews" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="number" dataKey="y" name="Avg score" domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <ZAxis type="number" dataKey="z" range={[80, 600]} />
-                <Tooltip content={<ScatterTip />} cursor={false} />
-                <Scatter data={scatter} fill={C.blue} fillOpacity={0.65} />
-              </ScatterChart>
-            </ResponsiveContainer>
+            {scatter.length ? (
+              <ResponsiveContainer>
+                <ScatterChart margin={{ top: 10, right: 16, left: -14, bottom: 6 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.line} />
+                  <XAxis type="number" dataKey="x" name="Reviews" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis type="number" dataKey="y" name="Avg score" domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <ZAxis type="number" dataKey="z" range={[80, 600]} />
+                  <Tooltip content={<ScatterTip />} cursor={false} />
+                  <Scatter data={scatter} fill={C.blue} fillOpacity={0.65} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="qa-empty-chart">No scored employees yet.</div>
+            )}
           </div>
         </div>
 
         <div className="qa-card reveal">
           <CardHead title="Top weak areas" sub="Largest average gap to target (5.0) · from MySQL" />
           <div style={{ height: 300 }}>
-            <ResponsiveContainer>
-              <BarChart layout="vertical" data={weakAreas} margin={{ top: 6, right: 18, left: 8, bottom: 6 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={C.line} horizontal={false} />
-                <XAxis type="number" domain={[0, Math.max(1.6, ...weakAreas.map((w) => w.gap))]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="area" width={80} tick={{ fill: C.muted, fontSize: 12 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<Tip suffix=" gap" nameKey="full" />} cursor={false} />
-                <Bar dataKey="gap" radius={[0, 6, 6, 0]} maxBarSize={20} fill={C.amber} activeBar={false} />
-              </BarChart>
-            </ResponsiveContainer>
+            {weakAreas.length ? (
+              <ResponsiveContainer>
+                <BarChart layout="vertical" data={weakAreas} margin={{ top: 6, right: 18, left: 8, bottom: 6 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.line} horizontal={false} />
+                  <XAxis type="number" domain={[0, Math.max(1.6, ...weakAreas.map((w) => w.gap))]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="area" width={80} tick={{ fill: C.muted, fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<Tip suffix=" gap" nameKey="full" />} cursor={false} />
+                  <Bar dataKey="gap" radius={[0, 6, 6, 0]} maxBarSize={20} fill={C.amber} activeBar={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="qa-empty-chart">No weak-area data yet.</div>
+            )}
           </div>
         </div>
       </div>
@@ -1998,7 +2035,7 @@ function Analytics() {
         <div className="qa-card reveal">
           <CardHead title="Most improved employees" sub="Δ score vs. prior 30 days" />
           <div className="qa-improved">
-            {improved.map((e, i) => (
+            {improved.length ? improved.map((e, i) => (
               <div key={e.name} className="qa-improved-row">
                 <div className="qa-avatar sm" style={{ background: rankGrad(i) }}>{e.init}</div>
                 <div className="qa-improved-meta">
@@ -2008,7 +2045,9 @@ function Analytics() {
                 <div className="qa-improved-bar"><span style={{ width: `${Math.max(10, (e.trend + 0.3) / 0.8 * 100)}%`, background: e.trend >= 0 ? C.emerald : C.red }} /></div>
                 <b className={e.trend >= 0 ? "up" : "down"} style={{ color: e.trend >= 0 ? C.emerald : C.red }}>{e.trend >= 0 ? "+" : ""}{e.trend}</b>
               </div>
-            ))}
+            )) : (
+              <div className="qa-muted" style={{ padding: "12px 4px" }}>No score movement yet — needs reviews across two periods.</div>
+            )}
           </div>
         </div>
       </div>
@@ -2050,7 +2089,7 @@ const heatColor = (v) => {
 
 /* ============================ PROJECTS ============================ */
 function Projects({ go }) {
-  const { projects, rubric, analytics } = useData();
+  const { projects } = useData();
   const [sel, setSel] = useState("");
   const [tab, setTab] = useState("Overview");
   const [detail, setDetail] = useState(null);
@@ -2076,22 +2115,13 @@ function Projects({ go }) {
   if (!projects.length) return <div className="qa-card reveal">No projects in database yet.</div>;
   if (!p) return <div className="qa-card reveal">Select a project.</div>;
 
-  const dims = (detail?.rubric?.length ? detail.rubric : (rubric.length ? rubric : RUBRIC).map((r, i) => ({
-    dim: r.key.split(" ")[0],
-    full: r.key,
-    key: r.key,
-    score: +(Math.min(5, Math.max(1, (p.avg || 4) + ((i % 3) - 1) * 0.25))).toFixed(1),
-  })));
+  const dims = detail?.rubric?.length ? detail.rubric : [];
   const rubricBreak = dims.map((r) => ({
-    dim: r.dim || r.key.split(" ")[0],
+    dim: r.dim || r.key?.split(" ")[0],
     full: r.full || r.key,
     score: Number(r.score),
   }));
-  const monthlyFallback = analytics.monthly?.length ? analytics.monthly : MONTHLY;
-  const trend = (detail?.monthly?.length ? detail.monthly : monthlyFallback.map((m, i) => ({
-    m: m.m,
-    score: +(Math.max(1, Math.min(5, (p.avg || 4) - 0.4 + i * 0.05))).toFixed(2),
-  })));
+  const trend = detail?.monthly?.length ? detail.monthly : [];
   const rubricRows = activeRubric.length ? activeRubric : rubricBreak;
   const strongest = [...rubricRows].sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 3);
   const weakest = [...rubricRows].sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 3);
@@ -2176,21 +2206,25 @@ function Projects({ go }) {
                     <div className="qa-card reveal">
                       <CardHead title="Monthly quality trend" sub="Project score over time" />
                       <div style={{ height: 210 }}>
-                        <ResponsiveContainer>
-                          <AreaChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="projTrend" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={C.blue} stopOpacity={0.28} />
-                                <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
-                            <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                            <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                            <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
-                            <Area type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} fill="url(#projTrend)" dot={{ r: 3, fill: C.blue }} />
-                          </AreaChart>
-                        </ResponsiveContainer>
+                        {trend.length ? (
+                          <ResponsiveContainer>
+                            <AreaChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="projTrend" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor={C.blue} stopOpacity={0.28} />
+                                  <stop offset="100%" stopColor={C.blue} stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
+                              <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                              <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                              <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
+                              <Area type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} fill="url(#projTrend)" dot={{ r: 3, fill: C.blue }} />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="qa-empty-chart">No monthly scores yet.</div>
+                        )}
                       </div>
                     </div>
                     <RubricBarsCard
@@ -2205,11 +2239,15 @@ function Projects({ go }) {
                   <div className="qa-grid-2">
                     <div className="qa-card reveal qa-insight strong">
                       <div className="qa-insight-head"><Star size={16} color={C.emerald} /> Strongest rubrics</div>
-                      {strongest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.emerald} />)}
+                      {strongest.length
+                        ? strongest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.emerald} />)
+                        : <div className="qa-muted">No rubric scores yet.</div>}
                     </div>
                     <div className="qa-card reveal qa-insight weak">
                       <div className="qa-insight-head"><Target size={16} color={C.amber} /> Weakest rubrics</div>
-                      {weakest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.amber} />)}
+                      {weakest.length
+                        ? weakest.map((s) => <RowMini key={s.full} label={s.full} value={s.score} color={C.amber} />)
+                        : <div className="qa-muted">No rubric scores yet.</div>}
                     </div>
                   </div>
 
@@ -2636,9 +2674,7 @@ function EmployeeHome() {
     return <div className="qa-card reveal">Your employee profile is not linked yet. Ask an admin to map your user ID.</div>;
   }
 
-  const trend = detail?.monthly?.length
-    ? detail.monthly
-    : MONTHLY.map((m, i) => ({ m: m.m, score: +(Math.max(1, Math.min(5, Number(e.avg || 3.5) - 0.5 + i * 0.06))).toFixed(2) }));
+  const trend = detail?.monthly?.length ? detail.monthly : [];
   const rubricBreak = (detail?.rubric?.length ? detail.rubric : []).map((r) => ({
     dim: r.dim || String(r.key || "").split(" ")[0],
     full: r.full || r.key,
@@ -2650,6 +2686,9 @@ function EmployeeHome() {
   const strongest = [...rubricRows].sort((a, b) => Number(b.score) - Number(a.score)).slice(0, 3);
   const weakest = [...rubricRows].sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 3);
   const avg = Number(e.avg || 0);
+  const hasScores = Number(e.reviews) > 0;
+  const readyPct = hasScores ? Number(e.ready || 0) : 0;
+  const consistencyPct = hasScores ? Number(e.consistency || 0) : 0;
 
   return (
     <div className="qa-stack">
@@ -2678,8 +2717,8 @@ function EmployeeHome() {
               <div key={k}><b>{v}</b><span>{k}</span></div>
             ))}
           </div>
-          <Gauge2 label="Promotion readiness" value={Number(e.ready || 0)} color={C.blue} />
-          <Gauge2 label="Consistency index" value={Number(e.consistency || 0)} color={C.emerald} />
+          <Gauge2 label="Promotion readiness" value={readyPct} color={C.blue} />
+          <Gauge2 label="Consistency index" value={consistencyPct} color={C.emerald} />
           <div className="qa-profile-trend">
             <span>Improvement trend</span>
             <b className={Number(e.trend) >= 0 ? "up" : "down"}>
@@ -2696,15 +2735,19 @@ function EmployeeHome() {
                 <div className="qa-card reveal">
                   <CardHead title="Monthly score trend" sub="From MySQL review history" />
                   <div style={{ height: 210 }}>
-                    <ResponsiveContainer>
-                      <LineChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
-                        <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
-                        <Line type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                    {trend.length ? (
+                      <ResponsiveContainer>
+                        <LineChart data={trend} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={C.line} vertical={false} />
+                          <XAxis dataKey="m" tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis domain={[3, 5]} tick={{ fill: C.faint, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<Tip suffix=" / 5" />} cursor={false} />
+                          <Line type="monotone" dataKey="score" stroke={C.blue} strokeWidth={3} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 6 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="qa-empty-chart">No monthly scores yet.</div>
+                    )}
                   </div>
                 </div>
                 <RubricBarsCard

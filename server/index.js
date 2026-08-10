@@ -178,12 +178,12 @@ async function employeeStats() {
           AND r.review_date >= DATE_SUB(CURDATE(), INTERVAL 60 DAY) THEN r.overall_score END), 0)
       , 1) AS trend,
       ROUND(
-        CASE WHEN COUNT(r.id) = 0 THEN COALESCE(e.ready_pct, 0)
+        CASE WHEN COUNT(r.id) = 0 THEN 0
              ELSE LEAST(98, GREATEST(35, AVG(r.overall_score) * 18 + COUNT(r.id) * 0.8))
         END, 0
       ) AS ready,
       ROUND(
-        CASE WHEN COUNT(r.id) <= 1 THEN COALESCE(e.consistency_pct, 80)
+        CASE WHEN COUNT(r.id) <= 1 THEN 0
              ELSE LEAST(99, GREATEST(40, 100 - (MAX(r.overall_score) - MIN(r.overall_score)) * 28))
         END, 0
       ) AS consistency
@@ -520,16 +520,18 @@ async function analyticsBundle() {
     GROUP BY unit, doc
   `);
   const dist = distribution[0] || {};
+  const distributionBuckets = [
+    { name: "0–1", value: Number(dist.b01 || 0), color: "#EF4444" },
+    { name: "1–2", value: Number(dist.b12 || 0), color: "#FB7185" },
+    { name: "2–3", value: Number(dist.b23 || 0), color: "#F59E0B" },
+    { name: "3–4", value: Number(dist.b34 || 0), color: "#60A5FA" },
+    { name: "4–5", value: Number(dist.b45 || 0), color: "#10B981" },
+  ];
+  const distTotal = distributionBuckets.reduce((a, d) => a + d.value, 0);
   return {
     monthly: monthly.map((m) => ({ m: m.m, score: Number(m.score), count: Number(m.count) })),
     docPerf: docPerf.map((d) => ({ t: d.t, score: Number(d.score) })),
-    distribution: [
-      { name: "0–1", value: Number(dist.b01 || 0), color: "#EF4444" },
-      { name: "1–2", value: Number(dist.b12 || 0), color: "#FB7185" },
-      { name: "2–3", value: Number(dist.b23 || 0), color: "#F59E0B" },
-      { name: "3–4", value: Number(dist.b34 || 0), color: "#60A5FA" },
-      { name: "4–5", value: Number(dist.b45 || 0), color: "#10B981" },
-    ],
+    distribution: distTotal ? distributionBuckets : [],
     weakAreas: weakAreas.map((w) => ({
       area: w.area, full: w.full, gap: Number(w.gap), score: Number(w.score),
     })),
