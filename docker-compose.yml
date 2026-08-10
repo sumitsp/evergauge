@@ -1,0 +1,50 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: evergauge:latest
+    container_name: evergauge-app
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      NODE_ENV: production
+    volumes:
+      - uploads_data:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+        required: false
+
+  # Optional local MySQL. Set MYSQL_HOST=mysql in .env, then:
+  #   docker compose --profile local-db up --build
+  mysql:
+    profiles: ["local-db"]
+    image: mysql:8.4
+    container_name: evergauge-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-quality_tracking}
+      MYSQL_USER: ${MYSQL_USER:-evergauge}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-evergauge}
+    ports:
+      - "${MYSQL_PUBLISH_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  uploads_data:
+  mysql_data:

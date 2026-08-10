@@ -1568,7 +1568,20 @@ app.get("/api/reports/:type", requireAdmin, async (req, res) => {
   }
 });
 
+// Serve Vite build when present (Docker / production single-container)
+const distDir = path.join(__dirname, "..", "dist");
+const distIndex = path.join(distDir, "index.html");
+if (fs.existsSync(distIndex)) {
+  app.use(express.static(distDir));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    if (req.path.startsWith("/api") || req.path.startsWith("/uploads")) return next();
+    res.sendFile(distIndex);
+  });
+}
+
 const port = Number(process.env.PORT || 3001);
+const host = process.env.HOST || "0.0.0.0";
 
 async function start() {
   await assertPortFree(port);
@@ -1579,8 +1592,9 @@ async function start() {
   const authCreds = await seedAuthCredentials();
   const ima = await seedImaAccess();
 
-  const server = app.listen(port, () => {
-    console.log(`API listening on http://localhost:${port}`);
+  const server = app.listen(port, host, () => {
+    console.log(`API listening on http://${host}:${port}`);
+    if (fs.existsSync(distIndex)) console.log("Serving frontend from /dist");
     if (synced) console.log("Evernile rubrics synced (Teaser / IM-CIM / Financial Model).");
     console.log(seeded ? "Database seeded with initial data." : "Demo project/review seed skipped.");
     console.log(`Employees ready · ${roster.total} people`);
