@@ -167,6 +167,7 @@ async function employeeStats() {
   const [rows] = await pool.query(`
     SELECT
       e.id, e.name, e.unit, e.initials AS init,
+      COALESCE(e.job_title, 'Analyst') AS title,
       ROUND(COALESCE(AVG(r.overall_score), 0), 1) AS avg,
       COUNT(r.id) AS reviews,
       COUNT(DISTINCT r.project_id) AS projects,
@@ -189,7 +190,7 @@ async function employeeStats() {
       ) AS consistency
     FROM employees e
     LEFT JOIN reviews r ON r.employee_id = e.id
-    GROUP BY e.id
+    GROUP BY e.id, e.name, e.unit, e.initials, e.job_title, e.ready_pct, e.consistency_pct
     ORDER BY e.name ASC
   `);
   return rows.map((r) => ({
@@ -580,7 +581,7 @@ async function dashboardKpis() {
     creditsTotal: totalCredits,
     sparkline: sparkRows.map((r) => ({ m: r.m, count: Number(r.c), score: Number(r.score) })),
     reviewerName: await getSetting("reviewer_name", "Dhritiman Mitra"),
-    reviewerRole: await getSetting("reviewer_role", "Engagement Manager"),
+    reviewerRole: await getSetting("reviewer_role", "Manager"),
   };
 }
 
@@ -1554,9 +1555,9 @@ app.get("/api/reports/:type", requireAdmin, async (req, res) => {
     }
 
     if (req.query.format === "csv" && type === "employees") {
-      const header = "name,unit,avg,reviews,projects,best,low,trend,ready,consistency\n";
+      const header = "name,title,unit,avg,reviews,projects,best,low,trend,ready,consistency\n";
       const lines = employees.map((e) =>
-        [e.name, e.unit, e.avg, e.reviews, e.projects, e.best, e.low, e.trend, e.ready, e.consistency]
+        [e.name, e.title || "Analyst", e.unit, e.avg, e.reviews, e.projects, e.best, e.low, e.trend, e.ready, e.consistency]
           .map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")
       ).join("\n");
       res.setHeader("Content-Type", "text/csv");

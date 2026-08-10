@@ -26,6 +26,7 @@ export async function initSchema() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+    await ensureColumn(conn, "employees", "job_title", "job_title VARCHAR(40) NOT NULL DEFAULT 'Analyst'");
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS projects (
@@ -185,7 +186,7 @@ export async function initSchema() {
        ('ai_credits_total', '2000'),
        ('ai_credits_used', '0'),
        ('reviewer_name', 'Dhritiman Mitra'),
-       ('reviewer_role', 'Engagement Manager'),
+       ('reviewer_role', 'Manager'),
        ('rubrics_version', '0')`
     );
 
@@ -395,19 +396,24 @@ export async function syncEvernileRubrics(force = false) {
 }
 
 /** Canonical analyst roster (names you provided). Not demo reviews/projects. */
+/** Canonical analyst roster. job_title: Manager | Analyst */
 const CORE_EMPLOYEES = [
-  ["Abhinav Dasgupta", "Investment Banking", "AD", 0, 0],
-  ["Banala Dinesh", "Consulting", "BD", 0, 0],
-  ["Devyansh Rajput", "Investment Banking", "DR", 0, 0],
-  ["Dhritiman Mitra", "Deal Advisory", "DM", 0, 0],
-  ["Mayank Yadav", "Deal Advisory", "MY", 0, 0],
-  ["Rishabh Mannari", "Research", "RM", 0, 0],
-  ["Rudransh Bhardwaj", "Investment Banking", "RB", 0, 0],
-  ["Sahil Sachdeva", "Deal Advisory", "SS", 0, 0],
-  ["Sumit Pandey", "Consulting", "SP", 0, 0],
-  ["Tarun Kumar", "Research", "TK", 0, 0],
-  ["Varun Jhaveri", "Research", "VJ", 0, 0],
+  ["Abhinav Dasgupta", "Investment Banking", "AD", 0, 0, "Manager"],
+  ["Banala Dinesh", "Consulting", "BD", 0, 0, "Analyst"],
+  ["Devyansh Rajput", "Investment Banking", "DR", 0, 0, "Analyst"],
+  ["Dhritiman Mitra", "Deal Advisory", "DM", 0, 0, "Manager"],
+  ["Mayank Yadav", "Deal Advisory", "MY", 0, 0, "Analyst"],
+  ["Rishabh Mannari", "Research", "RM", 0, 0, "Analyst"],
+  ["Rudransh Bhardwaj", "Investment Banking", "RB", 0, 0, "Analyst"],
+  ["Sahil Sachdeva", "Deal Advisory", "SS", 0, 0, "Analyst"],
+  ["Sumit Pandey", "Consulting", "SP", 0, 0, "Analyst"],
+  ["Tarun Kumar", "Research", "TK", 0, 0, "Analyst"],
+  ["Varun Jhaveri", "Research", "VJ", 0, 0, "Manager"],
 ];
+
+export const MANAGER_NAMES = new Set(
+  CORE_EMPLOYEES.filter((r) => r[5] === "Manager").map((r) => r[0])
+);
 
 /** Firm admins — these emails are always role=admin (password + Google). */
 export const ADMIN_ACCOUNTS = [
@@ -431,13 +437,14 @@ export async function seedIfEmpty() {
 /** Upsert the firm employee list. Removes retired names. Does not create fake reviews/projects. */
 export async function ensureCoreEmployees() {
   let inserted = 0;
-  for (const [name, unit, initials, ready, consistency] of CORE_EMPLOYEES) {
+  for (const [name, unit, initials, ready, consistency, jobTitle] of CORE_EMPLOYEES) {
     const [res] = await pool.query(
-      `INSERT INTO employees (name, unit, initials, ready_pct, consistency_pct)
-       VALUES (:name, :unit, :initials, :ready, :consistency)
+      `INSERT INTO employees (name, unit, initials, ready_pct, consistency_pct, job_title)
+       VALUES (:name, :unit, :initials, :ready, :consistency, :job_title)
        ON DUPLICATE KEY UPDATE unit = VALUES(unit), initials = VALUES(initials),
-         ready_pct = VALUES(ready_pct), consistency_pct = VALUES(consistency_pct)`,
-      { name, unit, initials, ready, consistency }
+         ready_pct = VALUES(ready_pct), consistency_pct = VALUES(consistency_pct),
+         job_title = VALUES(job_title)`,
+      { name, unit, initials, ready, consistency, job_title: jobTitle || "Analyst" }
     );
     if (res.affectedRows === 1) inserted += 1;
   }

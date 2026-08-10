@@ -28,6 +28,8 @@ export function formatUserRow(u) {
     employeeInit: u.employee_init,
     isAdmin: u.role === "admin",
     isEmployee: u.role === "employee",
+    isManager: u.role === "admin",
+    jobTitle: u.role === "admin" ? "Manager" : "Analyst",
   };
 }
 

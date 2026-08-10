@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, RadarChart, Radar, PolarGrid,
@@ -8,11 +8,11 @@ import {
   LayoutDashboard, ClipboardCheck, UploadCloud, Users, FolderKanban,
   BarChart3, FileText, SlidersHorizontal, Moon, Sun,
   TrendingUp, TrendingDown, Clock, Award, AlertTriangle, FileStack,
-  ChevronRight, ChevronDown, Check, X, RotateCcw, Sparkles, FileCheck2,
+  ChevronRight, ChevronDown, ChevronUp, Check, X, RotateCcw, Sparkles, FileCheck2,
   ScanLine, ListChecks, Gauge, Lightbulb, CheckCircle2, Plus,
   Trophy, Target, Activity, ShieldCheck, Filter, Download, ArrowUpRight,
   ArrowDownRight, Info, CircleDot, Star, Building2, Calendar, User,
-  Eye, EyeOff, Pencil, Trash2, ArrowLeft, Lock, Mail,
+  Eye, EyeOff, Pencil, Trash2, ArrowLeft, Lock, Mail, LogOut,
 } from "lucide-react";
 import { useData } from "./src/DataContext.jsx";
 import { api } from "./src/api.js";
@@ -256,7 +256,7 @@ const NAV_ADMIN = [
   { id: "employees", label: "Employees", icon: Users },
   { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "reports", label: "Reports", icon: FileText },
+  // { id: "reports", label: "Reports", icon: FileText }, // disabled for now
   { id: "rubric", label: "Rubric Settings", icon: SlidersHorizontal },
 ];
 
@@ -273,8 +273,25 @@ function Sidebar({ active, setActive }) {
   const total = kpis?.creditsTotal ?? 2000;
   const pct = total ? Math.min(100, Math.round((used / total) * 100)) : 0;
   const reviewer = user?.displayName || kpis?.reviewerName || "User";
-  const role = isAdmin ? (kpis?.reviewerRole || "Admin") : (user?.employeeUnit || "Analyst");
+  const role = isAdmin ? (kpis?.reviewerRole || "Manager") : (user?.jobTitle || user?.role === "employee" ? "Analyst" : (user?.employeeUnit || "Analyst"));
+  const email = user?.email || "";
   const init = reviewer.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const profileRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setMenuOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   return (
     <aside className="qa-sidebar">
@@ -282,7 +299,7 @@ function Sidebar({ active, setActive }) {
         <img src="/evergauge-mark.png?v=5" alt="" className="qa-brand-mark-img" />
         <div className="qa-brand-text">
           <div className="qa-brand-name">Ever<span>Gauge</span></div>
-          <div className="qa-brand-sub">{isAdmin ? "Admin workspace" : "Employee workspace"}</div>
+          <div className="qa-brand-sub">{isAdmin ? "Manager workspace" : "Analyst workspace"}</div>
         </div>
       </div>
 
@@ -308,14 +325,38 @@ function Sidebar({ active, setActive }) {
         </div>
       )}
 
-      <div className="qa-side-user">
-        <div className="qa-avatar" style={{ background: "linear-gradient(135deg,#2563EB,#10B981)" }}>{init}</div>
-        <div className="qa-side-user-meta">
-          <div className="qa-side-user-name">{reviewer}</div>
-          <div className="qa-side-user-role">{role}</div>
-        </div>
-        <button className="qa-icon-btn" title="Sign out" onClick={() => logout()} style={{ width: 32, height: 32 }}>
-          <X size={14} />
+      <div className={`qa-side-profile ${menuOpen ? "open" : ""}`} ref={profileRef}>
+        {menuOpen && (
+          <div className="qa-side-profile-menu" role="menu">
+            <div className="qa-side-profile-menu-head">
+              <div className="qa-side-profile-menu-name">{reviewer}</div>
+              {email ? <div className="qa-side-profile-menu-email">{email}</div> : null}
+              <div className="qa-side-profile-menu-role">{role}</div>
+            </div>
+            <button
+              type="button"
+              className="qa-side-profile-item danger"
+              role="menuitem"
+              onClick={() => { setMenuOpen(false); logout(); }}
+            >
+              <LogOut size={15} />
+              <span>Log out</span>
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          className="qa-side-user"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <div className="qa-avatar" style={{ background: "linear-gradient(135deg,#2563EB,#10B981)" }}>{init}</div>
+          <div className="qa-side-user-meta">
+            <div className="qa-side-user-name">{reviewer}</div>
+            <div className="qa-side-user-role">{role}</div>
+          </div>
+          {menuOpen ? <ChevronDown size={16} color="#8298BC" /> : <ChevronUp size={16} color="#8298BC" />}
         </button>
       </div>
     </aside>
@@ -608,7 +649,7 @@ function Dashboard({ go }) {
                 <div className="qa-avatar sm" style={{ background: rankGrad(i) }}>{e.init}</div>
                 <div className="qa-lead-meta">
                   <div className="qa-lead-name">{e.name}</div>
-                  <div className="qa-lead-sub">{e.unit} · {e.projects} projects</div>
+                  <div className="qa-lead-sub">{e.title || "Analyst"} · {e.unit} · {e.projects} projects</div>
                 </div>
                 <div className="qa-lead-score" style={{ color: scoreColor(e.avg) }}>{Number(e.avg).toFixed(1)}</div>
                 <span className={`qa-trend mini ${e.trend >= 0 ? "up" : "down"}`}>
@@ -1752,7 +1793,7 @@ function Employees() {
         <div className="qa-card reveal qa-profile">
           <div className="qa-avatar xl" style={{ background: rankGrad(employees.findIndex((x) => x.name === e.name) % 5) }}>{e.init}</div>
           <div className="qa-profile-name">{e.name}</div>
-          <div className="qa-profile-role">{e.unit}</div>
+          <div className="qa-profile-role">{e.title || "Analyst"} · {e.unit}</div>
           <div className="qa-profile-grade" style={{ color: scoreColor(e.avg), background: `${scoreColor(e.avg)}14` }}>
             Grade {gradeFor(e.avg)} · {Number(e.avg).toFixed(1)} avg
           </div>
@@ -2040,7 +2081,7 @@ function Analytics() {
                 <div className="qa-avatar sm" style={{ background: rankGrad(i) }}>{e.init}</div>
                 <div className="qa-improved-meta">
                   <div className="qa-lead-name">{e.name}</div>
-                  <div className="qa-lead-sub">{e.unit}</div>
+                  <div className="qa-lead-sub">{e.title || "Analyst"} · {e.unit}</div>
                 </div>
                 <div className="qa-improved-bar"><span style={{ width: `${Math.max(10, (e.trend + 0.3) / 0.8 * 100)}%`, background: e.trend >= 0 ? C.emerald : C.red }} /></div>
                 <b className={e.trend >= 0 ? "up" : "down"} style={{ color: e.trend >= 0 ? C.emerald : C.red }}>{e.trend >= 0 ? "+" : ""}{e.trend}</b>
@@ -2708,7 +2749,7 @@ function EmployeeHome() {
         <div className="qa-card reveal qa-profile">
           <div className="qa-avatar xl" style={{ background: rankGrad(0) }}>{e.init || user?.employeeInit}</div>
           <div className="qa-profile-name">{e.name}</div>
-          <div className="qa-profile-role">{e.unit}</div>
+          <div className="qa-profile-role">{e.title || "Analyst"} · {e.unit}</div>
           <div className="qa-profile-grade" style={{ color: scoreColor(avg), background: `${scoreColor(avg)}14` }}>
             Grade {gradeFor(avg)} · {avg.toFixed(1)} avg
           </div>
@@ -3080,7 +3121,7 @@ export default function App() {
   useEffect(() => {
     if (!authenticated) return;
     const allowed = isAdmin
-      ? ["dashboard", "reviews", "upload", "employees", "projects", "analytics", "reports", "rubric"]
+      ? ["dashboard", "reviews", "upload", "employees", "projects", "analytics", "rubric"]
       : ["dashboard", "projects"];
     if (!allowed.includes(active)) setActive("dashboard");
   }, [authenticated, isAdmin, active]);
@@ -3314,11 +3355,27 @@ function Styles() {
 .qa-side-card-bar{height:6px;border-radius:6px;background:rgba(255,255,255,.1);margin:10px 0 7px;overflow:hidden;}
 .qa-side-card-bar span{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#2563EB,#5EEAD4);}
 .qa-side-card-meta{font-size:11px;color:#8298BC;}
-.qa-side-user{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;cursor:pointer;transition:.18s;}
-.qa-side-user:hover{background:rgba(255,255,255,.05);}
-.qa-side-user-meta{flex:1;}
-.qa-side-user-name{font-size:13px;font-weight:600;color:#fff;}
+.qa-side-profile{position:relative;margin-top:auto;padding-top:8px;}
+.qa-side-user{display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;cursor:pointer;transition:.18s;
+  width:100%;border:1px solid transparent;background:transparent;font:inherit;color:inherit;text-align:left;}
+.qa-side-user:hover,.qa-side-profile.open .qa-side-user{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.08);}
+.qa-side-user-meta{flex:1;min-width:0;}
+.qa-side-user-name{font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .qa-side-user-role{font-size:11px;color:#8298BC;}
+.qa-side-profile-menu{position:absolute;left:0;right:0;bottom:calc(100% + 8px);background:#0B1730;
+  border:1px solid rgba(255,255,255,.1);border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.45);
+  padding:8px;z-index:40;animation:qaPop .14s ease;}
+.qa-side-profile-menu-head{padding:10px 10px 12px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:6px;}
+.qa-side-profile-menu-name{font-size:13.5px;font-weight:700;color:#fff;}
+.qa-side-profile-menu-email{font-size:11.5px;color:#8298BC;margin-top:2px;word-break:break-all;}
+.qa-side-profile-menu-role{display:inline-block;margin-top:8px;font-size:10.5px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:#A8C4FF;background:rgba(37,99,235,.22);padding:3px 8px;border-radius:999px;}
+.qa-side-profile-item{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;
+  color:#D5E0F2;font:inherit;font-size:13px;font-weight:600;padding:10px;border-radius:10px;cursor:pointer;text-align:left;}
+.qa-side-profile-item:hover{background:rgba(255,255,255,.06);}
+.qa-side-profile-item.danger{color:#FCA5A5;}
+.qa-side-profile-item.danger:hover{background:rgba(239,68,68,.14);color:#FECACA;}
+@keyframes qaPop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* AVATAR */
 .qa-avatar{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;color:#fff;
