@@ -289,7 +289,8 @@ export function extractToken(req) {
 }
 
 export function authMiddleware(req, res, next) {
-  if (publicAuthPaths(req.path)) return next();
+  // Production serves the SPA from this same process — only protect API routes.
+  if (!req.path.startsWith("/api") || publicAuthPaths(req.path)) return next();
   const token = extractToken(req);
   loadUserByToken(token)
     .then((user) => {
