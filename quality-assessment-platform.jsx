@@ -352,26 +352,53 @@ function qualityStreakData(reviews) {
     if (!byEmp[r.emp]) byEmp[r.emp] = [];
     byEmp[r.emp].push(r);
   }
-  return Object.entries(byEmp)
-    .map(([name, rows]) => {
-      const sorted = [...rows].sort((a, b) => {
-        const da = new Date(a.review_date || a.date || 0).getTime();
-        const db = new Date(b.review_date || b.date || 0).getTime();
-        if (db !== da) return db - da;
-        return Number(b.id || 0) - Number(a.id || 0);
-      });
-      let streak = 0;
-      for (const r of sorted) {
-        if (Number(r.score) >= 4) streak += 1;
-        else break;
-      }
-      return {
+
+  const active = [];
+  const broken = [];
+
+  for (const [name, rows] of Object.entries(byEmp)) {
+    const sorted = [...rows].sort((a, b) => {
+      const da = new Date(a.review_date || a.date || 0).getTime();
+      const db = new Date(b.review_date || b.date || 0).getTime();
+      if (db !== da) return db - da;
+      return Number(b.id || 0) - Number(a.id || 0);
+    });
+
+    let streak = 0;
+    for (const r of sorted) {
+      if (Number(r.score) >= 4) streak += 1;
+      else break;
+    }
+
+    if (streak > 0) {
+      active.push({
         name: shortPersonName(name),
         full: name,
         streak,
-      };
-    })
-    .sort((a, b) => b.streak - a.streak || a.full.localeCompare(b.full));
+      });
+      continue;
+    }
+
+    // Latest review fell below 4 — check whether a prior 4.0+ run was broken
+    const breaker = sorted[0];
+    if (!breaker || Number(breaker.score) >= 4) continue;
+    let priorStreak = 0;
+    for (const r of sorted.slice(1)) {
+      if (Number(r.score) >= 4) priorStreak += 1;
+      else break;
+    }
+    if (priorStreak < 1) continue;
+    broken.push({
+      name: shortPersonName(name),
+      full: name,
+      priorStreak,
+      at: new Date(breaker.review_date || breaker.date || 0).getTime(),
+    });
+  }
+
+  active.sort((a, b) => b.streak - a.streak || a.full.localeCompare(b.full));
+  broken.sort((a, b) => b.at - a.at || b.priorStreak - a.priorStreak);
+  return { active, lastReset: broken[0] || null };
 }
 
 function Dashboard({ go }) {
@@ -402,7 +429,7 @@ function Dashboard({ go }) {
       .reduce((a, d) => a + Number(d.value || 0), 0) / distTotal * 100
   );
   const sparkSeed = (kpis?.sparkline || []).map((s) => s.count);
-  const streaks = qualityStreakData(reviews);
+  const { active: streaks, lastReset } = qualityStreakData(reviews);
   const streakMax = Math.max(3, ...streaks.map((s) => s.streak), 1);
 
   const kpisUi = [
@@ -469,6 +496,14 @@ function Dashboard({ go }) {
           <CardHead
             title="Quality streak"
             sub="Consecutive latest reviews scoring 4.0+ · resets when a review falls below 4"
+            right={
+              lastReset ? (
+                <div className="qa-streak-reset" title={`Previously ${lastReset.priorStreak} in a row at 4.0+`}>
+                  <span className="qa-streak-reset-label">Latest reset</span>
+                  <span className="qa-streak-reset-name">{lastReset.full}</span>
+                </div>
+              ) : null
+            }
           />
           <div style={{ height: 292 }}>
             {streaks.length ? (
@@ -498,7 +533,11 @@ function Dashboard({ go }) {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="qa-empty-chart">No scored reviews yet — streaks appear once deliverables are assessed.</div>
+              <div className="qa-empty-chart">
+                {lastReset
+                  ? `No active streaks — latest reset: ${lastReset.full}`
+                  : "No active 4.0+ streaks yet — they appear once consecutive high scores land."}
+              </div>
             )}
           </div>
         </div>
@@ -3293,6 +3332,9 @@ function Styles() {
 .qa-cardhead{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;gap:12px;}
 .qa-cardhead-title{font-size:15.5px;font-weight:700;letter-spacing:-.2px;}
 .qa-cardhead-sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+.qa-streak-reset{text-align:right;max-width:46%;line-height:1.25;flex-shrink:0;}
+.qa-streak-reset-label{display:block;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);}
+.qa-streak-reset-name{display:block;margin-top:3px;font-size:13px;font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .qa-rubric-slicer{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .qa-rubric-slicer .qa-select{min-width:140px;}
 .qa-pill{font-size:11.5px;font-weight:600;color:var(--blue);background:${C.blueSoft};padding:5px 11px;border-radius:20px;white-space:nowrap;}
