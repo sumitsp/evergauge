@@ -120,28 +120,13 @@ function lookupDimEntry(parsed, dimKey) {
 }
 
 /**
- * Claude literal-matches exacting Level-1/2 guide text and undershoots.
- * Lift only when the batch average is below the fair sweet spot (~3.3–4.2).
+ * Pass Claude scores through unchanged. No average targeting / batch lift —
+ * the prompt already requires honest use of the full 1–5 range.
  */
 function calibrateScoreBatch(rawScores) {
   const vals = Object.values(rawScores).filter((n) => n != null && Number.isFinite(Number(n))).map(Number);
-  if (!vals.length) return { scores: rawScores, lift: 0, rawAvg: null };
-  const rawAvg = vals.reduce((a, b) => a + b, 0) / vals.length;
-  let lift = 0;
-  if (rawAvg < 2.4) lift = 2;
-  else if (rawAvg < 3.15) lift = 1;
-  if (!lift) return { scores: rawScores, lift: 0, rawAvg };
-
-  const out = {};
-  for (const [k, v] of Object.entries(rawScores)) {
-    if (v == null || !Number.isFinite(Number(v))) {
-      out[k] = v;
-      continue;
-    }
-    // Floor at 3 after a lift — 1–2 reserved for truly broken work after calibration
-    out[k] = Math.min(5, Math.max(3, Math.round(Number(v) + lift)));
-  }
-  return { scores: out, lift, rawAvg };
+  const rawAvg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  return { scores: { ...rawScores }, lift: 0, rawAvg };
 }
 
 function stubAssessment(ctx) {
@@ -259,7 +244,7 @@ function buildRubricBlock(dimensions) {
         .join("\n");
       return [
         `### ${d.dim_key}${d.is_manual ? " [MANUAL — score must be null]" : ""}`,
-        "Match the SPIRIT of the Level (illustrative descriptors, not a literal checklist). Start at Level 3; move up or down only with clear evidence. Prefer the higher Level on a close call.",
+        "Use Level 1–5 as the quality ladder. Award the level whose description best matches the balance of observable evidence — not the highest level with a single trace.",
         guideLines || "  (no guides provided)",
       ].join("\n");
     })
@@ -296,71 +281,82 @@ async function anthropicAssessment(ctx, extracted) {
   const scoredDims = ctx.dimensions.filter((d) => !d.is_manual);
   const manualDims = ctx.dimensions.filter((d) => d.is_manual);
   const dimKeys = ctx.dimensions.map((d) => d.dim_key);
-  const exampleKeys = scoredDims.slice(0, 2).map((d) => d.dim_key);
-  const exampleManual = manualDims[0]?.dim_key || "Turnaround Time";
 
-  const system = `You are EverGauge, Evernile's quality assessment engine. Score like a fair managing director reviewing a real IB deliverable — constructive, not punitive.
+  const system = `You are EverGauge, Evernile's quality assessment engine. You score investment-banking deliverables (teasers, IMs/CIMs, financial models) against a fixed rubric, the way a demanding but fair managing director marks a real submission: evidence-first, calibrated, and willing to use the full 1–5 range.
 
-## Hard calibration rules (follow exactly)
+## Prime directive
+Score only what you can actually observe in the document. Your job is discrimination, not encouragement — a score is useful only if a 4 means something different from a 3. Do NOT target any average. Do NOT smooth scores toward the middle. Let the evidence place each dimension wherever it lands.
 
-1. Level 3 is the DEFAULT starting point for every dimension.
-2. Score 1 or 2 ONLY when the document clearly matches that Level's failure description (broken, unusable, or missing the section entirely). Ordinary gaps, missing citations you cannot verify, or imperfect polish are NOT Level 1–2.
-3. A recognizable professional draft that a client could review should score mostly 3s and 4s. Overall average should typically land near 3.5–4.0.
-4. Treat Level guides as SPIRIT / illustrative descriptors — not literal checklists. Partial evidence for a Level is enough to award it.
-5. On a close call between two Levels, choose the HIGHER one.
-6. Level 4 is appropriate for clear strengths. Level 5 is uncommon but OK when clearly earned.
-7. Do not invent content that is not in the document.
-8. Differentiate dimensions by evidence — avoid identical scores on every dimension.
-9. If the PDF/text is hard to read or incomplete extraction, assume Level 3 (not 1–2) unless failure is obvious.
+## How to score each dimension
+1. Read the Level 1–5 descriptors as the definition of that dimension's quality ladder.
+2. Extract the specific, observable signals named in the descriptors (e.g. "sum of mix % = 100 on every chart", "8 sections in canonical order", "A/P/E labels on every table", "assertion titles with numbers", "BS balances every year without a plug").
+3. Check the document for each signal: present, partial, or absent.
+4. Award the level whose description best matches the BALANCE of what you observe — not the highest level you can find a single trace of.
 
-## Score meanings
+## Anchor and meaning of each score
+1 = Poor. The Level-1 failure is genuinely present (broken, unusable, section absent).
+2 = Below expectations. Material failure; major rework needed (matches Level-2).
+3 = Meets expectations. Core content present and client-reviewable, but generic or incomplete on the high-signal items.
+4 = Strong. Most Level-4 markers are observably present; clearly above a competent baseline.
+5 = Excellent. The SPECIFIC institutional markers in the Level-5 descriptor are actually visible in the document — not implied, not assumed.
+Treat Level 3 as the conceptual midpoint, not a default resting place. Move up only when the higher level's markers are genuinely present; move down when the described failure is genuinely there.
 
-* 1 = Poor — deliverable is broken / unusable on this dimension
-* 2 = Below Expectations — material failure; would require major rework
-* 3 = Meets Expectations — competent / usable (DEFAULT)
-* 4 = Strong — clearly above average
-* 5 = Excellent — outstanding
+## The 3 / 4 / 5 boundary (where scores wrongly cluster — be strict here)
+- Missing/generic high-signal items → 3, even if the document looks polished.
+- Most Level-4 markers observed → 4.
+- If you are INFERRING the Level-5 markers rather than seeing them, it is a 4, not a 5.
+
+## Guard against unfair harshness (keep narrow)
+- Poor or partial text extraction is a technical issue, not a quality failure. Assess what is legible; do not score 1–2 on that basis.
+- You see only the deliverable — not the source data room, delivery logs, or iteration history. For any criterion requiring external information (e.g. "every number traces to source doc"), do NOT fabricate verification and do NOT assume the worst. Score the in-document proxy only: internal consistency, presence of source citations and period/basis labels within the document, and whether repeated figures are identical across sections.
+
+## Guard against inflation (equally important)
+- An unverifiable claim is not "verified." A number with no stated basis is not "sourced" just because it looks plausible.
+- One strong dimension must not halo the others. Score each dimension independently.
+- Partial evidence earns partial credit, not full credit. A single trace of a Level-5 marker is not a 5.
+
+## Differentiation
+Real deliverables are uneven — a 5 on narrative can sit beside a 2 on financial depth. Nearly identical scores across all dimensions almost always mean you under-differentiated; re-examine each against its own evidence before finalizing.
 
 ## Manual dimensions
-
-Dimensions marked MANUAL: score null, reason "MANUAL".
+Dimensions marked MANUAL are scored by a human. Return score: null, reason: "MANUAL".
 
 ## Output
+Return ONLY valid JSON — no markdown, no code fences, no prose outside the JSON.
+Each key = the exact dimension name.
+Each value = { "score": <integer 1-5 or null>, "reason": "<Level N: one concrete, dimension-specific observation — name the signal you saw or found missing>" }.
+The reason must cite a specific feature of THIS document, not a restatement of the rubric. No two reasons should be interchangeable.`;
 
-Return ONLY valid JSON. No markdown, no code fences, no prose outside JSON.
+  const instruction = `Assess this ${ctx.documentType} against the rubric below, scoring each dimension on observable evidence in the document.
 
-Each key = exact dimension name. Each value = { "score": <integer 1-5 or null>, "reason": "<Level N: short evidence-based justification>" }.`;
-
-  const instruction = `Assess this ${ctx.documentType} fairly. Start every dimension at Level 3, then adjust.
-
-Metadata (context only):
+Metadata (context only — must not influence the score):
 - Employee / owner: ${ctx.employee}
 - Project: ${ctx.project}
 - File name: ${ctx.fileName}
 - Document type: ${ctx.documentType}
 
-## Rubric (exact JSON keys = dimension names)
-
+## Rubric (exact JSON keys = dimension names; Level 1-5 descriptors define the quality ladder)
 ${buildRubricBlock(ctx.dimensions)}
 
-## Required keys (and only these)
+## Procedure (apply per dimension, then emit JSON)
+1. From the Level descriptors, identify the specific observable signals for this dimension.
+2. Check the document for each: present / partial / absent.
+3. Map to the level whose description best matches the balance of evidence — not the highest level with one trace.
+4. Write a reason naming the specific signal you observed or found missing.
 
+## Required keys (return these and only these)
 ${dimKeys.map((k) => JSON.stringify(k)).join(", ")}
 
-Manual (score null): ${manualDims.map((d) => d.dim_key).join("; ") || "none"}
+Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).join("; ") || "none"}
 
-## Output shape example
+## Output shape
+{ "<dimension name>": { "score": 4, "reason": "Level 4: ..." }, ... }
 
-{
-  ${exampleKeys[0] ? JSON.stringify(exampleKeys[0]) : '"Dimension A"'}: { "score": 4, "reason": "Level 4: <brief evidence>." },
-  ${exampleKeys[1] ? JSON.stringify(exampleKeys[1]) : '"Dimension B"'}: { "score": 3, "reason": "Level 3: <brief evidence>." },
-  ${JSON.stringify(exampleManual)}: { "score": null, "reason": "MANUAL" }
-}
-
-## Checklist
-
-- Mostly 3s and 4s for a real professional draft. Do NOT return a batch of 1s/2s.
-- JSON only. Exact dimension names as keys.`;
+## Before finishing
+- Scores should vary across dimensions where evidence varies; uniform scores signal under-differentiation.
+- Use the full range honestly: 1-2 where the described failure is real, 5 only where Level-5 markers are actually visible.
+- Every reason must be specific to this document and non-interchangeable.
+- JSON only. Exact dimension names as keys. No text outside the JSON.`;
 
   const content = [];
   if (extracted.kind === "pdf") {

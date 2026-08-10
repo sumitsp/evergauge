@@ -78,6 +78,17 @@ export const DOC_TYPE_RUBRICS = [
         ],
       },
       {
+        key: "Design",
+        is_manual: true,
+        guides: [
+          "No visual hierarchy. Crowded or empty pages. Off-brand colours. Unreadable charts or icons.",
+          "Weak layout. Inconsistent visual system. Charts hard to scan. Brand elements applied unevenly.",
+          "Acceptable layout and brand use. Charts readable. Some pages still look template-generic.",
+          "Clean visual hierarchy. Consistent Evernile look. Charts and callouts support the story.",
+          "Polished IB-grade design. Strong hierarchy, whitespace, and brand craft. Every visual earns its place and elevates the narrative.",
+        ],
+      },
+      {
         key: "Timeline & Turnaround (2 days)",
         is_manual: true,
         guides: [
@@ -174,6 +185,17 @@ export const DOC_TYPE_RUBRICS = [
           "Mostly consistent. Minor drifts on a few slides.",
           "Consistent formatting. One or two imperfections. Every slide has a visual.",
           "Font, size, alignment per Evernile spec every slide. Footer, logo, page numbers on every slide. Every slide has a visual. Zero em or en dashes. File named per convention. No text overflow, no overlap.",
+        ],
+      },
+      {
+        key: "Design",
+        is_manual: true,
+        guides: [
+          "No visual hierarchy. Crowded or empty slides. Off-brand colours. Charts or icons hard to read.",
+          "Weak slide composition. Inconsistent visual system. Brand applied unevenly across the deck.",
+          "Acceptable layout and brand use. Charts readable. Some slides still feel template-generic.",
+          "Clean hierarchy and consistent Evernile look. Visuals reinforce the investment thesis.",
+          "Polished CIM-grade design. Strong hierarchy, whitespace, and brand craft. Every slide is scannable and presentation-ready.",
         ],
       },
       {
@@ -283,6 +305,17 @@ export const DOC_TYPE_RUBRICS = [
           "Cover with KPIs. Sheets named. Print header partial.",
           "Cover with KPIs and valuation summary. Print-ready.",
           "Cover with executive summary, key outputs, valuation summary, sensitivity heatmap, model version and date, scenario cell reference, color code legend. Print header 'Evernile Capital | Client | Confidential' on every sheet. Freeze panes on labels row. Landscape fit-to-width. File under 10MB.",
+        ],
+      },
+      {
+        key: "Design",
+        is_manual: true,
+        guides: [
+          "No visual discipline. Unreadable outputs. Charts and cover look unfinished or off-brand.",
+          "Weak presentation layer. Inconsistent styling across sheets. Hard for a partner to scan.",
+          "Acceptable cover and chart polish. Some sheets still look raw Excel.",
+          "Clean cover, charts, and print layout. Consistent Evernile presentation standards.",
+          "Board-ready design layer. Cover, charts, and print pack look intentional, branded, and easy to present.",
         ],
       },
       {

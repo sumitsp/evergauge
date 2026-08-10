@@ -244,7 +244,7 @@ export async function initSchema() {
 
 /** Upsert Evernile document types + rubric dimensions. Never wipes review scores. */
 export async function syncEvernileRubrics(force = false) {
-  const VERSION = "evernile-v1";
+  const VERSION = "evernile-v2-design-manual";
   const [verRows] = await pool.query(
     `SELECT setting_value FROM app_settings WHERE setting_key = 'rubrics_version'`
   );

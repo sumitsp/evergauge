@@ -1372,7 +1372,7 @@ function Upload({ phase, setPhase, go }) {
           {error && <div style={{ color: C.red, marginTop: 12, fontSize: 13 }}>{error}</div>}
 
           <div className="qa-upload-foot">
-            <div className="qa-upload-note"><ShieldCheck size={15} /> Claude scores against MySQL rubrics · Timeline stays manual</div>
+            <div className="qa-upload-note"><ShieldCheck size={15} /> Claude scores against MySQL rubrics · Design & Timeline stay manual</div>
             <button className="qa-btn-primary lg" disabled={!file || saving || !form.employee} onClick={runAssessment}>
               <Sparkles size={16} /> {saving ? "Claude is scoring…" : "Run AI quality assessment"}
             </button>
@@ -1542,7 +1542,7 @@ function Results({ go }) {
           </div>
           {pendingManual.length > 0 && (
             <div className="qa-result-pending">
-              Enter Timeline & Turnaround manually to complete the average score.
+              Enter manual scores ({pendingManual.map((d) => d.key.replace(/\s*\(.+\)$/, "")).join(", ")}) to complete the average.
             </div>
           )}
         </div>
@@ -1628,7 +1628,7 @@ function Results({ go }) {
                         <td colSpan={6}>
                           <div className="qa-expand-grid">
                             <div>
-                              <div className="qa-expand-label"><Sparkles size={13} /> {r.is_manual ? "Timeline guide" : "AI explanation"}</div>
+                              <div className="qa-expand-label"><Sparkles size={13} /> {r.is_manual ? "Manual guide" : "AI explanation"}</div>
                               <p>{r.ai_note}</p>
                               {r.guides?.length > 0 && (
                                 <div style={{ marginTop: 10 }}>
