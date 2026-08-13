@@ -6,11 +6,12 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { DOC_TYPE_RUBRICS } from "./rubrics-catalog.js";
+import { extractText as extractPdfText } from "unpdf";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TEXT_CHARS = 120_000;
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_PDF_BYTES = 32 * 1024 * 1024;
 
 function hashString(str) {
   let h = 2166136261;
@@ -183,6 +184,17 @@ async function extractPptxText(buf) {
   return parts.join("\n\n");
 }
 
+async function pdfPlainText(buf) {
+  try {
+    const { text, totalPages } = await extractPdfText(new Uint8Array(buf), { mergePages: true });
+    const joined = Array.isArray(text) ? text.join("\n\n") : String(text || "");
+    return { text: joined.slice(0, MAX_TEXT_CHARS), pages: totalPages || 0 };
+  } catch (err) {
+    console.warn("[assess] PDF text extract failed:", err.message);
+    return { text: "", pages: 0 };
+  }
+}
+
 async function extractDocumentText(filePath, mimeType, fileName) {
   if (!filePath) return { kind: "text", text: "" };
   const buf = await fs.readFile(filePath);
@@ -190,12 +202,15 @@ async function extractDocumentText(filePath, mimeType, fileName) {
   const mime = (mimeType || "").toLowerCase();
 
   if (mime.includes("pdf") || ext === ".pdf") {
-    if (buf.length <= MAX_PDF_BYTES) {
-      return { kind: "pdf", base64: buf.toString("base64"), bytes: buf.length };
-    }
+    const extracted = await pdfPlainText(buf);
+    const embed = buf.length <= MAX_PDF_BYTES;
+    console.log(`[assess] PDF ${buf.length} bytes · ${extracted.pages} pages · ${extracted.text.length} chars · embed=${embed}`);
     return {
-      kind: "text",
-      text: `[PDF is ${buf.length} bytes — too large to embed. Score conservatively from file name/metadata only, or ask the user to upload a smaller PDF.]`,
+      kind: "pdf",
+      base64: embed ? buf.toString("base64") : null,
+      bytes: buf.length,
+      pages: extracted.pages,
+      text: extracted.text,
     };
   }
 
@@ -357,10 +372,15 @@ Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).
 }
 
 function documentUserText(instruction, extracted) {
-  if (extracted.kind === "pdf") return instruction;
-  return extracted.text?.trim()
-    ? `${instruction}\n\n--- DOCUMENT TEXT ---\n${extracted.text}`
-    : `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. Score from what is observable in the remaining text/metadata.]`;
+  const body = extracted.text?.trim();
+  if (body) return `${instruction}\n\n--- DOCUMENT TEXT (${extracted.pages || "?"} pages) ---\n${body}`;
+  return `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. This is a technical extraction issue, not a quality failure. Do NOT score 1–2 for unseen pages. Use Level 3 unless failure is obvious from the remaining text.]`;
+}
+
+function modelMean(rawScores) {
+  const vals = Object.values(rawScores || {}).filter((n) => n != null && Number.isFinite(Number(n))).map(Number);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 function scoresFromParsed(ctx, parsed) {
@@ -405,7 +425,23 @@ function roundScore(n) {
 function averageDualScores(ctx, claude, gpt) {
   const scores = {};
   const aiNotes = {};
-  const sources = [claude, gpt].filter(Boolean);
+  const claudeMean = modelMean(claude?.rawScores);
+  const gptMean = modelMean(gpt?.rawScores);
+  // A model that never saw the file typically dumps 1s. Don't let that pull a real score to 1.
+  let useClaude = Boolean(claude);
+  let useGpt = Boolean(gpt);
+  if (useClaude && useGpt && claudeMean != null && gptMean != null) {
+    if (gptMean <= 1.6 && claudeMean >= 2.8) {
+      console.warn(`[assess] Ignoring GPT (mean ${gptMean.toFixed(2)}) — looks like a blind/unseen-document score`);
+      useGpt = false;
+    } else if (claudeMean <= 1.6 && gptMean >= 2.8) {
+      console.warn(`[assess] Ignoring Claude (mean ${claudeMean.toFixed(2)}) — looks like a blind/unseen-document score`);
+      useClaude = false;
+    }
+  }
+  const sources = [];
+  if (useClaude) sources.push(claude);
+  if (useGpt) sources.push(gpt);
 
   for (const d of ctx.dimensions) {
     if (d.is_manual) {
@@ -424,8 +460,8 @@ function averageDualScores(ctx, claude, gpt) {
       : 3;
 
     const parts = [];
-    if (claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
-    if (gpt?.aiNotes?.[d.dim_key]) parts.push(`GPT-4o-mini: ${gpt.aiNotes[d.dim_key]}`);
+    if (useClaude && claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
+    if (useGpt && gpt?.aiNotes?.[d.dim_key]) parts.push(`GPT-4o-mini: ${gpt.aiNotes[d.dim_key]}`);
     aiNotes[d.dim_key] = parts.join("\n") || noteFor(d, scores[d.dim_key]);
   }
 
@@ -447,7 +483,7 @@ async function anthropicAssessment(ctx, extracted, prompt) {
   const { system, instruction } = prompt;
 
   const content = [];
-  if (extracted.kind === "pdf") {
+  if (extracted.kind === "pdf" && extracted.base64) {
     content.push({
       type: "document",
       source: {
@@ -461,13 +497,25 @@ async function anthropicAssessment(ctx, extracted, prompt) {
     content.push({ type: "text", text: documentUserText(instruction, extracted) });
   }
 
-  const message = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    temperature: 0.2,
-    system,
-    messages: [{ role: "user", content }],
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      temperature: 0.2,
+      system,
+      messages: [{ role: "user", content }],
+    });
+  } catch (err) {
+    console.warn("[assess] Claude PDF embed failed, retrying with extracted text:", err.message);
+    message = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      temperature: 0.2,
+      system,
+      messages: [{ role: "user", content: [{ type: "text", text: documentUserText(instruction, extracted) }] }],
+    });
+  }
 
   const text = (message.content || [])
     .filter((b) => b.type === "text")
@@ -486,55 +534,19 @@ async function openaiAssessment(ctx, extracted, prompt) {
   console.log(`[assess] OpenAI model: ${model}`);
   const client = new OpenAI({ apiKey });
   const { system, instruction } = prompt;
+  const userText = documentUserText(instruction, extracted);
 
-  const userContent = [];
-  if (extracted.kind === "pdf" && extracted.base64) {
-    userContent.push({
-      type: "file",
-      file: {
-        filename: ctx.fileName || "document.pdf",
-        file_data: `data:application/pdf;base64,${extracted.base64}`,
-      },
-    });
-    userContent.push({ type: "text", text: instruction });
-  } else {
-    userContent.push({ type: "text", text: documentUserText(instruction, extracted) });
-  }
-
-  let text;
-  try {
-    const message = await client.chat.completions.create({
-      model,
-      temperature: 0.2,
-      max_tokens: 4096,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: userContent },
-      ],
-    });
-    text = message.choices?.[0]?.message?.content || "";
-  } catch (err) {
-    // gpt-4o-mini may reject native PDF file parts — retry with text-only prompt
-    console.warn("[assess] OpenAI file input failed, retrying as text:", err.message);
-    const message = await client.chat.completions.create({
-      model,
-      temperature: 0.2,
-      max_tokens: 4096,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: extracted.kind === "pdf"
-            ? `${instruction}\n\n--- DOCUMENT ---\n[PDF attached to Claude; score from file name/type and any signals in this prompt. Do not invent unseen pages.]`
-            : documentUserText(instruction, extracted),
-        },
-      ],
-    });
-    text = message.choices?.[0]?.message?.content || "";
-  }
-
+  const message = await client.chat.completions.create({
+    model,
+    temperature: 0.2,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: userText },
+    ],
+  });
+  const text = message.choices?.[0]?.message?.content || "";
   const parsed = parseJsonPayload(text);
   return { model, ...scoresFromParsed(ctx, parsed) };
 }
