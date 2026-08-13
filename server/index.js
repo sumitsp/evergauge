@@ -585,6 +585,10 @@ async function dashboardKpis() {
   };
 }
 
+function loggedInReviewer(user) {
+  return String(user?.displayName || user?.employeeName || "").trim() || null;
+}
+
 /* ============================ ROUTES ============================ */
 
 app.get("/api/health", async (_req, res) => {
@@ -794,6 +798,11 @@ app.get("/api/bootstrap", async (req, res) => {
     const projects = await projectStats();
     const analytics = await analyticsBundle();
     const kpis = await dashboardKpis();
+    const reviewerName = loggedInReviewer(req.user);
+    if (reviewerName) {
+      kpis.reviewerName = reviewerName;
+      kpis.reviewerRole = "Manager";
+    }
 
     res.json({
       view: "admin",
@@ -835,7 +844,13 @@ app.get("/api/bootstrap", async (req, res) => {
 app.get("/api/dashboard/kpis", async (req, res) => {
   try {
     if (!req.user?.isAdmin) return res.status(403).json({ error: "Admin access required" });
-    res.json(await dashboardKpis());
+    const kpis = await dashboardKpis();
+    const reviewerName = loggedInReviewer(req.user);
+    if (reviewerName) {
+      kpis.reviewerName = reviewerName;
+      kpis.reviewerRole = "Manager";
+    }
+    res.json(kpis);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -892,7 +907,9 @@ app.post("/api/employees/:id/coaching", requireAdmin, async (req, res) => {
     if (!detail) return res.status(404).json({ error: "Employee not found" });
     const note = (req.body.note || "").trim();
     if (!note) return res.status(400).json({ error: "note required" });
-    const author = req.body.author || (await getSetting("reviewer_name", "Dhritiman Mitra"));
+    const author = loggedInReviewer(req.user)
+      || req.body.author
+      || (await getSetting("reviewer_name", "Dhritiman Mitra"));
     const [result] = await pool.query(
       `INSERT INTO coaching_notes (employee_id, author, note) VALUES (:employee_id, :author, :note)`,
       { employee_id: detail.id, author, note }
@@ -1032,7 +1049,9 @@ app.post("/api/reviews", requireAdmin, upload.single("file"), async (req, res) =
     const project = body.project;
     const documentType = body.documentType;
     const reviewDate = body.reviewDate || new Date().toISOString().slice(0, 10);
-    const reviewer = body.reviewer || (await getSetting("reviewer_name", "Dhritiman Mitra"));
+    const reviewer = loggedInReviewer(req.user)
+      || body.reviewer
+      || (await getSetting("reviewer_name", "Dhritiman Mitra"));
     const businessUnit = body.businessUnit;
     const client = body.client || null;
     const status = body.status || "Pending";

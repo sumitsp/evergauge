@@ -1174,7 +1174,8 @@ const STEPS = [
 ];
 
 function Upload({ phase, setPhase, go }) {
-  const { employees, docTypes, refresh, setLatestReviewId, kpis } = useData();
+  const { employees, docTypes, refresh, setLatestReviewId } = useData();
+  const { user } = useAuth();
   const [file, setFile] = useState(null);
   const [drag, setDrag] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1186,14 +1187,15 @@ function Upload({ phase, setPhase, go }) {
     project: "Project Meridian",
     documentType: "Teaser",
     reviewDate: new Date().toISOString().slice(0, 10),
-    reviewer: "Dhritiman Mitra",
+    reviewer: "",
     businessUnit: "Capital",
     client: "",
   });
 
   useEffect(() => {
-    if (kpis?.reviewerName) setForm((f) => ({ ...f, reviewer: kpis.reviewerName }));
-  }, [kpis?.reviewerName]);
+    const name = String(user?.displayName || user?.employeeName || "").trim();
+    if (name) setForm((f) => ({ ...f, reviewer: name }));
+  }, [user?.displayName, user?.employeeName]);
 
   useEffect(() => {
     if (!form.employee && employees[0]) {
@@ -1762,7 +1764,7 @@ function Employees() {
     if (!coachNote.trim() || savingCoach) return;
     setSavingCoach(true);
     try {
-      await api.addCoaching(e.name, { note: coachNote, author: kpis?.reviewerName });
+      await api.addCoaching(e.name, { note: coachNote });
       const d = await api.employee(e.name);
       setDetail(d);
       setCoachNote("");
