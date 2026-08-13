@@ -296,7 +296,7 @@ function Sidebar({ active, setActive }) {
   return (
     <aside className="qa-sidebar">
       <div className="qa-brand">
-        <img src="/evergauge-logo.png?v=1" alt="EverGauge" className="qa-brand-logo" />
+        <img src="/evergauge-logo.png?v=2" alt="EverGauge" className="qa-brand-logo" />
         <div className="qa-brand-sub">{isAdmin ? "Manager workspace" : "Analyst workspace"}</div>
       </div>
 
@@ -3014,7 +3014,7 @@ function LoginScreen() {
       <div className="qa-land-shell">
         <section className="qa-land-hero">
           <div className="qa-land-brand">
-            <img src="/evergauge-logo.png?v=1" alt="EverGauge" className="qa-land-logo" />
+            <img src="/evergauge-logo.png?v=2" alt="EverGauge" className="qa-land-logo" />
           </div>
           <p className="qa-land-lede">
             Quality assessment for investment-banking deliverables — scored against Evernile rubrics.
