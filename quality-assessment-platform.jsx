@@ -296,11 +296,8 @@ function Sidebar({ active, setActive }) {
   return (
     <aside className="qa-sidebar">
       <div className="qa-brand">
-        <img src="/evergauge-mark.png?v=5" alt="" className="qa-brand-mark-img" />
-        <div className="qa-brand-text">
-          <div className="qa-brand-name">Ever<span>Gauge</span></div>
-          <div className="qa-brand-sub">{isAdmin ? "Manager workspace" : "Analyst workspace"}</div>
-        </div>
+        <img src="/evergauge-logo.png?v=1" alt="EverGauge" className="qa-brand-logo" />
+        <div className="qa-brand-sub">{isAdmin ? "Manager workspace" : "Analyst workspace"}</div>
       </div>
 
       <div className="qa-nav-group-label">Workspace</div>
@@ -3017,8 +3014,7 @@ function LoginScreen() {
       <div className="qa-land-shell">
         <section className="qa-land-hero">
           <div className="qa-land-brand">
-            <img src="/evergauge-mark.png?v=5" alt="" className="qa-land-mark" />
-            <div className="qa-land-wordmark">Ever<span>Gauge</span></div>
+            <img src="/evergauge-logo.png?v=1" alt="EverGauge" className="qa-land-logo" />
           </div>
           <p className="qa-land-lede">
             Quality assessment for investment-banking deliverables — scored against Evernile rubrics.
@@ -3235,12 +3231,8 @@ function Styles() {
   grid-template-columns:minmax(0,1fr) 380px;column-gap:72px;align-items:center;
   max-width:980px;margin:0 auto;padding:56px 40px;}
 .qa-land-hero{animation:landIn .65s ease both;display:flex;flex-direction:column;gap:18px;max-width:420px;}
-.qa-land-brand{display:flex;align-items:center;gap:16px;}
-.qa-land-mark{width:56px;height:56px;border-radius:14px;object-fit:contain;flex-shrink:0;
-  background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.28);}
-.qa-land-wordmark{font-family:'Cormorant Garamond',Georgia,serif;font-size:44px;font-weight:700;
-  letter-spacing:.01em;line-height:1;color:#F7F3F0;margin:0;}
-.qa-land-wordmark span{color:#C4A574;font-weight:600;}
+.qa-land-brand{display:flex;align-items:center;}
+.qa-land-logo{display:block;width:min(100%,340px);height:auto;object-fit:contain;}
 .qa-land-lede{font-size:15.5px;line-height:1.55;color:#9FB0C9;margin:0;max-width:36ch;}
 .qa-land-panel{background:#fff;color:#13294B;border-radius:18px;padding:28px 28px 22px;
   box-shadow:0 24px 48px rgba(0,0,0,.32);animation:landIn .65s .1s ease both;
@@ -3302,8 +3294,7 @@ function Styles() {
   .qa-land-shell{grid-template-columns:1fr;row-gap:36px;column-gap:0;padding:40px 22px 48px;align-items:start;
     max-width:440px;}
   .qa-land-hero{max-width:none;gap:14px;}
-  .qa-land-wordmark{font-size:36px;}
-  .qa-land-mark{width:48px;height:48px;border-radius:12px;}
+  .qa-land-logo{width:min(100%,280px);}
   .qa-land-panel{padding:24px 22px 18px;}
 }
 .qa-app{
@@ -3324,18 +3315,9 @@ function Styles() {
 .qa-sidebar{width:264px;flex-shrink:0;background:linear-gradient(180deg,#13294B 0%,#0F2140 100%);
   color:#C6D3E8;display:flex;flex-direction:column;padding:20px 16px;position:relative;}
 .qa-sidebar::after{content:'';position:absolute;top:0;right:0;width:1px;height:100%;background:rgba(255,255,255,.06);}
-.qa-brand{display:flex;align-items:center;gap:12px;padding:4px 6px 18px;}
-.qa-brand-mark-img{width:40px;height:40px;border-radius:11px;object-fit:contain;flex-shrink:0;
-  background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.22);}
-.qa-brand-text{min-width:0;display:flex;flex-direction:column;gap:1px;}
-.qa-brand-mark{width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,#2563EB,#10B981);
-  display:grid;place-items:center;box-shadow:0 6px 16px rgba(37,99,235,.4);}
-.qa-brand-name{font-family:'Cormorant Garamond',Georgia,'Times New Roman',serif;font-weight:700;
-  font-size:22px;color:#F4F0EC;letter-spacing:.02em;line-height:1.1;}
-.qa-brand-name span{color:#C4A574;font-weight:600;}
-.qa-brand-name.dark{color:#1A2A47;}
-.qa-brand-name.dark span{color:#8B7355;}
-.qa-brand-sub{font-size:11px;color:#7E92B4;font-weight:500;margin-top:1px;}
+.qa-brand{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:4px 6px 18px;}
+.qa-brand-logo{display:block;width:100%;max-width:220px;height:auto;object-fit:contain;}
+.qa-brand-sub{font-size:11px;color:#7E92B4;font-weight:500;padding-left:2px;}
 .qa-nav-group-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:#5F7399;
   font-weight:700;padding:8px 10px 6px;}
 .qa-nav{display:flex;flex-direction:column;gap:3px;flex:1;}

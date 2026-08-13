@@ -123,8 +123,8 @@ export const DOC_TYPE_RUBRICS = [
           "Fewer than 30 slides. Multiple sections missing. Sector core block absent.",
           "30 to 40 slides. Sector core block absent or thin. Adjusted EBITDA bridge missing.",
           "40 to 48 slides. All major sections present. Some sub-sections thin.",
-          "48 to 55 slides. All core sections present in correct order. Appendix is mostly complete, with only a small gap or thin sub-section.",
-          "48 to 55 slides plus full appendix. Sector core block (Slides 19 to 22) matches the mandate well. Adjusted EBITDA bridge, transaction structure diagram, and use-of-proceeds mapping are all present.",
+          "48 to 55 slides. All sections in correct order. Full appendix.",
+          "48 to 55 slides plus full appendix. Sector core block (Slides 19 to 22) matches correct Part 3 module. Adjusted EBITDA bridge, transaction structure diagram, use of proceeds mapped to levers all present.",
         ],
       },
       {
@@ -133,8 +133,8 @@ export const DOC_TYPE_RUBRICS = [
           "No decomposition. Unit economics absent. Analyst cannot build a model from the IM.",
           "Shallow analysis. Drivers not exposed. Growth stated as one number.",
           "Standard analysis. Growth split at one dimension. Some drivers exposed.",
-          "Full decomposition (volume, mix, capacity). Unit economics quantified. Enough detail for an analyst to build a credible first-pass model.",
-          "External analyst can build a working 3-statement model from the IM alone with only limited follow-up. Growth waterfall reconciles cleanly to the projection. Cohort or ramp chart is present where relevant.",
+          "Full decomposition (volume, mix, capacity). Unit economics quantified. Cohort chart on multi-unit business.",
+          "External analyst can build 3-statement model from the IM alone with zero follow-up. Growth waterfall reconciles exactly to Section 5 projection. Cohort chart of actual ramp vs assumed for multi-unit businesses.",
         ],
       },
       {
@@ -143,8 +143,8 @@ export const DOC_TYPE_RUBRICS = [
           "One-year snapshot only. No adjusted EBITDA bridge. No working capital view.",
           "3-year snapshot without projections or bridge. WC absent.",
           "3A+2P snapshot with basic assumption panel. WC days stated.",
-          "5-year table plus adj EBITDA bridge plus WC days plus ageing. Core assumptions are exposed.",
-          "5yr (3A+2P) with revenue, GP%, EBITDA%, adj EBITDA%, PAT, net debt, ROCE. Adjusted EBITDA bridge is materially reconciled and major add-backs are explained. DSO/DIO/DPO with ageing. EBITDA-to-OCF reconciliation. Base and conservative projection cases with delta drivers named.",
+          "5-year table plus adj EBITDA bridge plus WC days plus ageing.",
+          "5yr (3A+2P) with revenue, GP%, EBITDA%, adj EBITDA%, PAT, net debt, ROCE. Full adj EBITDA bridge with every add-back evidenced and total below 25% of reported. DSO/DIO/DPO with ageing. EBITDA-to-OCF reconciliation. Base and conservative projection cases with delta drivers named.",
         ],
       },
       {
@@ -163,8 +163,8 @@ export const DOC_TYPE_RUBRICS = [
           "Generic KPIs. Wrong sub-sector multiples. No diligence pre-emption.",
           "Basic sector context. A few KPIs but not the highest-signal ones.",
           "Right sector framework. Correct KPI set. Multiples in range.",
-          "Full sector KPI set. Correct sub-sector multiples with named comps. Common diligence points are pre-empted.",
-          "Complete Evernile playbook applied. Sector core block Slides 19 to 22 matches the correct Part 3 module, and the main diligence-sensitive items for the sector are addressed explicitly (govt receivable ageing for hospitals; NLEM exposure for pharma; discount treatment for D2C; ARR definition for SaaS).",
+          "Full sector KPI set. Correct sub-sector multiples with named comps.",
+          "Complete Evernile playbook applied. Sector core block Slides 19 to 22 matches correct Part 3 module. Every diligence-sensitive item for the sector pre-empted (govt receivable ageing for hospitals; NLEM exposure for pharma; discount treatment for D2C; ARR definition for SaaS).",
         ],
       },
       {
@@ -173,8 +173,8 @@ export const DOC_TYPE_RUBRICS = [
           "Ask absent or buried. Structure unclear.",
           "Ask stated in body without structure or timeline.",
           "Quantum plus basic structure. Use of proceeds stated.",
-          "Full structure with promoter continuity, lock-in, timeline, adviser contact. Use of proceeds is mostly clear.",
-          "Explicit quantum, indicative stake range, primary/secondary split, structure contemplated (equity/CCPS/mix), promoter continuity + lock-in, board composition, key rights, timeline, adviser contact. Use of proceeds is clearly mapped to growth levers. General corporate purposes stay limited.",
+          "Full structure with promoter continuity, lock-in, timeline, adviser contact.",
+          "Explicit quantum, indicative stake range, primary/secondary split, structure contemplated (equity/CCPS/mix), promoter continuity + lock-in, board composition, key rights, timeline, adviser contact. Use of proceeds mapped 1:1 to growth levers. General corporate purposes below 10%.",
         ],
       },
       {
@@ -184,7 +184,7 @@ export const DOC_TYPE_RUBRICS = [
           "Multiple format drifts across slides. Some slides text-only.",
           "Mostly consistent. Minor drifts on a few slides.",
           "Consistent formatting. One or two imperfections. Every slide has a visual.",
-          "Font, size, and alignment per Evernile spec on every slide. Footer, logo, and page numbers are consistent. Every slide has a visual. File named per convention. No text overflow or overlap.",
+          "Font, size, alignment per Evernile spec every slide. Footer, logo, page numbers on every slide. Every slide has a visual. Zero em or en dashes. File named per convention. No text overflow, no overlap.",
         ],
       },
       {
@@ -195,7 +195,7 @@ export const DOC_TYPE_RUBRICS = [
           "Weak slide composition. Inconsistent visual system. Brand applied unevenly across the deck.",
           "Acceptable layout and brand use. Charts readable. Some slides still feel template-generic.",
           "Clean hierarchy and consistent Evernile look. Visuals reinforce the investment thesis.",
-          "Polished CIM-grade design. Strong hierarchy, whitespace, and brand craft. Every slide feels intentional and presentation-ready.",
+          "Polished CIM-grade design. Strong hierarchy, whitespace, and brand craft. Every slide is scannable and presentation-ready.",
         ],
       },
       {
