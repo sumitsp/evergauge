@@ -1,12 +1,14 @@
 import fs from "fs/promises";
 import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { DOC_TYPE_RUBRICS } from "./rubrics-catalog.js";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TEXT_CHARS = 120_000;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
@@ -267,20 +269,13 @@ function parseJsonPayload(text) {
     if (start >= 0 && end > start) {
       return JSON.parse(raw.slice(start, end + 1));
     }
-    throw new Error("Anthropic response was not valid JSON");
+    throw new Error("Model response was not valid JSON");
   }
 }
 
-async function anthropicAssessment(ctx, extracted) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-
-  const model = String(process.env.ANTHROPIC_MODEL || MODEL).trim() || MODEL;
-  console.log(`[assess] Claude model: ${model}`);
-  const client = new Anthropic({ apiKey });
-  const scoredDims = ctx.dimensions.filter((d) => !d.is_manual);
-  const manualDims = ctx.dimensions.filter((d) => d.is_manual);
+function buildScoringPrompt(ctx) {
   const dimKeys = ctx.dimensions.map((d) => d.dim_key);
+  const manualDims = ctx.dimensions.filter((d) => d.is_manual);
 
   const system = `You are EverGauge, Evernile's quality assessment engine. You score investment-banking deliverables (teasers, IMs/CIMs, financial models) against a fixed rubric, the way a demanding but fair managing director marks a real submission: evidence-first, calibrated, and willing to use the full 1–5 range.
 
@@ -358,41 +353,19 @@ Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).
 - Every reason must be specific to this document and non-interchangeable.
 - JSON only. Exact dimension names as keys. No text outside the JSON.`;
 
-  const content = [];
-  if (extracted.kind === "pdf") {
-    content.push({
-      type: "document",
-      source: {
-        type: "base64",
-        media_type: "application/pdf",
-        data: extracted.base64,
-      },
-    });
-    content.push({ type: "text", text: instruction });
-  } else {
-    const body = extracted.text?.trim()
-      ? `${instruction}\n\n--- DOCUMENT TEXT ---\n${extracted.text}`
-      : `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. Default each dimension to Level 3 unless failure is obvious from metadata/filename.]`;
-    content.push({ type: "text", text: body });
-  }
+  return { system, instruction, dimKeys, manualDims };
+}
 
-  const message = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    temperature: 0.2,
-    system,
-    messages: [{ role: "user", content }],
-  });
+function documentUserText(instruction, extracted) {
+  if (extracted.kind === "pdf") return instruction;
+  return extracted.text?.trim()
+    ? `${instruction}\n\n--- DOCUMENT TEXT ---\n${extracted.text}`
+    : `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. Score from what is observable in the remaining text/metadata.]`;
+}
 
-  const text = (message.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-
-  const parsed = parseJsonPayload(text);
+function scoresFromParsed(ctx, parsed) {
   const rawScores = {};
   const aiNotes = {};
-  const scoredValues = [];
 
   for (const d of ctx.dimensions) {
     const entry = lookupDimEntry(parsed, d.dim_key);
@@ -417,26 +390,164 @@ Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).
     }
 
     let score = clampScore(raw);
-    // Missing/unparsed → Level 3 baseline, not random stub
     if (score == null) score = 3;
     rawScores[d.dim_key] = score;
     aiNotes[d.dim_key] = reason || noteFor(d, score);
   }
 
-  const { scores, lift, rawAvg } = calibrateScoreBatch(rawScores);
-  for (const d of scoredDims) {
-    scoredValues.push(scores[d.dim_key]);
+  return { rawScores, aiNotes };
+}
+
+function roundScore(n) {
+  return Math.round(Number(n) * 10) / 10;
+}
+
+function averageDualScores(ctx, claude, gpt) {
+  const scores = {};
+  const aiNotes = {};
+  const sources = [claude, gpt].filter(Boolean);
+
+  for (const d of ctx.dimensions) {
+    if (d.is_manual) {
+      scores[d.dim_key] = null;
+      aiNotes[d.dim_key] = "MANUAL";
+      continue;
+    }
+
+    const vals = sources
+      .map((s) => s.rawScores[d.dim_key])
+      .filter((n) => n != null && Number.isFinite(Number(n)))
+      .map(Number);
+
+    scores[d.dim_key] = vals.length
+      ? roundScore(vals.reduce((a, b) => a + b, 0) / vals.length)
+      : 3;
+
+    const parts = [];
+    if (claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
+    if (gpt?.aiNotes?.[d.dim_key]) parts.push(`GPT-4o-mini: ${gpt.aiNotes[d.dim_key]}`);
+    aiNotes[d.dim_key] = parts.join("\n") || noteFor(d, scores[d.dim_key]);
   }
 
-  const overall = scoredValues.length
-    ? Math.round((scoredValues.reduce((a, b) => a + b, 0) / scoredValues.length) * 100) / 100
+  const scored = ctx.dimensions.filter((d) => !d.is_manual).map((d) => scores[d.dim_key]).filter((n) => n != null);
+  const overall = scored.length
+    ? Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100) / 100
     : null;
 
-  console.log(
-    `[assess] rawAvg=${rawAvg != null ? rawAvg.toFixed(2) : "n/a"} lift=+${lift} overall=${overall} scores=${JSON.stringify(scores)}`
-  );
+  return { scores, aiNotes, overall };
+}
 
+async function anthropicAssessment(ctx, extracted, prompt) {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
+
+  const model = String(process.env.ANTHROPIC_MODEL || MODEL).trim() || MODEL;
+  console.log(`[assess] Claude model: ${model}`);
+  const client = new Anthropic({ apiKey });
+  const { system, instruction } = prompt;
+
+  const content = [];
+  if (extracted.kind === "pdf") {
+    content.push({
+      type: "document",
+      source: {
+        type: "base64",
+        media_type: "application/pdf",
+        data: extracted.base64,
+      },
+    });
+    content.push({ type: "text", text: instruction });
+  } else {
+    content.push({ type: "text", text: documentUserText(instruction, extracted) });
+  }
+
+  const message = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    temperature: 0.2,
+    system,
+    messages: [{ role: "user", content }],
+  });
+
+  const text = (message.content || [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+
+  const parsed = parseJsonPayload(text);
+  return { model, ...scoresFromParsed(ctx, parsed), usage: message.usage || null };
+}
+
+async function openaiAssessment(ctx, extracted, prompt) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENAI_API_KEY not set");
+
+  const model = String(process.env.OPENAI_MODEL || OPENAI_MODEL).trim() || OPENAI_MODEL;
+  console.log(`[assess] OpenAI model: ${model}`);
+  const client = new OpenAI({ apiKey });
+  const { system, instruction } = prompt;
+
+  const userContent = [];
+  if (extracted.kind === "pdf" && extracted.base64) {
+    userContent.push({
+      type: "file",
+      file: {
+        filename: ctx.fileName || "document.pdf",
+        file_data: `data:application/pdf;base64,${extracted.base64}`,
+      },
+    });
+    userContent.push({ type: "text", text: instruction });
+  } else {
+    userContent.push({ type: "text", text: documentUserText(instruction, extracted) });
+  }
+
+  let text;
+  try {
+    const message = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 4096,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userContent },
+      ],
+    });
+    text = message.choices?.[0]?.message?.content || "";
+  } catch (err) {
+    // gpt-4o-mini may reject native PDF file parts — retry with text-only prompt
+    console.warn("[assess] OpenAI file input failed, retrying as text:", err.message);
+    const message = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 4096,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: extracted.kind === "pdf"
+            ? `${instruction}\n\n--- DOCUMENT ---\n[PDF attached to Claude; score from file name/type and any signals in this prompt. Do not invent unseen pages.]`
+            : documentUserText(instruction, extracted),
+        },
+      ],
+    });
+    text = message.choices?.[0]?.message?.content || "";
+  }
+
+  const parsed = parseJsonPayload(text);
+  return { model, ...scoresFromParsed(ctx, parsed) };
+}
+
+function finalizeAssessment(ctx, claude, gpt) {
+  const { scores, aiNotes, overall } = averageDualScores(ctx, claude, gpt);
   const derived = buildInsightsFromScores(ctx.dimensions, scores, aiNotes);
+  const models = [claude?.model, gpt?.model].filter(Boolean);
+  const claudeAvg = claude ? calibrateScoreBatch(claude.rawScores).rawAvg : null;
+  const gptAvg = gpt ? calibrateScoreBatch(gpt.rawScores).rawAvg : null;
+  console.log(
+    `[assess] claudeAvg=${claudeAvg != null ? claudeAvg.toFixed(2) : "n/a"} gptAvg=${gptAvg != null ? gptAvg.toFixed(2) : "n/a"} final=${overall} scores=${JSON.stringify(scores)}`
+  );
 
   return {
     scores,
@@ -444,24 +555,27 @@ Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).
     overall,
     strengths: derived.strengths,
     improvements: derived.improvements,
-    aiModel: model,
-    creditsUsed: 1,
-    pendingManual: manualDims.map((d) => d.dim_key),
-    usage: message.usage || null,
+    aiModel: models.length > 1 ? `${models.join(" + ")} avg`.slice(0, 80) : (models[0] || "avg"),
+    creditsUsed: models.length,
+    pendingManual: ctx.dimensions.filter((d) => d.is_manual).map((d) => d.dim_key),
+    modelScores: {
+      claude: claude?.rawScores || null,
+      openai: gpt?.rawScores || null,
+    },
   };
 }
 
 /**
- * Score non-manual dimensions via Anthropic using DB rubric guides + uploaded file.
+ * Score non-manual dimensions via Claude and GPT-4o-mini (same prompt), then average.
  * Always returns a scorable result so the review is saved and visible in Quality Reviews.
- * Uses Claude when ANTHROPIC_API_KEY is set; otherwise rubric stub scoring.
  */
 export async function runAssessment(ctx, options = {}) {
   const preferAi = options.requireAi !== false;
-  const hasKey = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  const hasClaude = Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  const hasOpenAi = Boolean(process.env.OPENAI_API_KEY?.trim());
 
-  if (!hasKey) {
-    console.warn("[assess] ANTHROPIC_API_KEY missing — using stub scorer (review still saved)");
+  if (!hasClaude && !hasOpenAi) {
+    console.warn("[assess] No ANTHROPIC_API_KEY or OPENAI_API_KEY — using stub scorer");
     const stub = stubAssessment(ctx);
     stub.aiModel = "stub-v1 (no API key)";
     stub.usedStub = true;
@@ -470,17 +584,36 @@ export async function runAssessment(ctx, options = {}) {
 
   try {
     const extracted = await extractDocumentText(ctx.filePath, ctx.mimeType, ctx.fileName);
-    const result = await anthropicAssessment(ctx, extracted);
+    const prompt = buildScoringPrompt(ctx);
+    const jobs = [];
+    if (hasClaude) jobs.push(anthropicAssessment(ctx, extracted, prompt).then((r) => ({ name: "claude", result: r })));
+    if (hasOpenAi) jobs.push(openaiAssessment(ctx, extracted, prompt).then((r) => ({ name: "openai", result: r })));
+
+    const settled = await Promise.allSettled(jobs);
+    let claude = null;
+    let gpt = null;
+    for (const item of settled) {
+      if (item.status === "fulfilled") {
+        if (item.value.name === "claude") claude = item.value.result;
+        if (item.value.name === "openai") gpt = item.value.result;
+      } else {
+        console.error("[assess] model failed:", item.reason?.message || item.reason);
+      }
+    }
+
+    if (!claude && !gpt) throw new Error("Both Claude and OpenAI scoring failed");
+
+    const result = finalizeAssessment(ctx, claude, gpt);
     result.usedStub = false;
     return result;
   } catch (err) {
-    console.error("[assess] Anthropic scoring failed:", err.message);
+    console.error("[assess] Dual scoring failed:", err.message);
     if (preferAi && String(process.env.REQUIRE_ANTHROPIC || "").toLowerCase() === "true") {
       throw err;
     }
     console.warn("[assess] Falling back to stub scorer");
     const stub = stubAssessment(ctx);
-    const reason = String(err.message || "anthropic error").slice(0, 40);
+    const reason = String(err.message || "scoring error").slice(0, 40);
     stub.aiModel = `stub-fallback (${reason})`.slice(0, 80);
     stub.usedStub = true;
     return stub;

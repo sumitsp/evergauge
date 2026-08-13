@@ -1371,9 +1371,9 @@ function Upload({ phase, setPhase, go }) {
           {error && <div style={{ color: C.red, marginTop: 12, fontSize: 13 }}>{error}</div>}
 
           <div className="qa-upload-foot">
-            <div className="qa-upload-note"><ShieldCheck size={15} /> Claude scores against MySQL rubrics · Design & Timeline stay manual</div>
+            <div className="qa-upload-note"><ShieldCheck size={15} /> Claude + GPT-4o-mini score the same rubric, then we average · Design & Timeline stay manual</div>
             <button className="qa-btn-primary lg" disabled={!file || saving || !form.employee} onClick={runAssessment}>
-              <Sparkles size={16} /> {saving ? "Claude is scoring…" : "Run AI quality assessment"}
+              <Sparkles size={16} /> {saving ? "Claude and GPT-4o-mini are scoring…" : "Run AI quality assessment"}
             </button>
           </div>
         </div>
