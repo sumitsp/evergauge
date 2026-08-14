@@ -12,6 +12,7 @@ const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TEXT_CHARS = 120_000;
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
+const MAX_PDF_EMBED_BYTES = 8 * 1024 * 1024;
 
 function hashString(str) {
   let h = 2166136261;
@@ -186,9 +187,13 @@ async function extractPptxText(buf) {
 
 async function pdfPlainText(buf) {
   try {
-    const { text, totalPages } = await extractPdfText(new Uint8Array(buf), { mergePages: true });
-    const joined = Array.isArray(text) ? text.join("\n\n") : String(text || "");
-    return { text: joined.slice(0, MAX_TEXT_CHARS), pages: totalPages || 0 };
+    const { text, totalPages } = await extractPdfText(new Uint8Array(buf), { mergePages: false });
+    const pages = Array.isArray(text) ? text : [String(text || "")];
+    const labeled = pages
+      .map((p, i) => `--- PAGE ${i + 1} of ${pages.length} ---\n${String(p || "").trim()}`)
+      .filter((p) => p.replace(/--- PAGE.+\n/, "").trim())
+      .join("\n\n");
+    return { text: labeled.slice(0, MAX_TEXT_CHARS), pages: totalPages || pages.length };
   } catch (err) {
     console.warn("[assess] PDF text extract failed:", err.message);
     return { text: "", pages: 0 };
@@ -203,7 +208,7 @@ async function extractDocumentText(filePath, mimeType, fileName) {
 
   if (mime.includes("pdf") || ext === ".pdf") {
     const extracted = await pdfPlainText(buf);
-    const embed = buf.length <= MAX_PDF_BYTES;
+    const embed = buf.length <= MAX_PDF_EMBED_BYTES;
     console.log(`[assess] PDF ${buf.length} bytes · ${extracted.pages} pages · ${extracted.text.length} chars · embed=${embed}`);
     return {
       kind: "pdf",
@@ -319,6 +324,8 @@ Treat Level 3 as the conceptual midpoint, not a default resting place. Move up o
 ## Guard against unfair harshness (keep narrow)
 - Poor or partial text extraction is a technical issue, not a quality failure. Assess what is legible; do not score 1–2 on that basis.
 - You see only the deliverable — not the source data room, delivery logs, or iteration history. For any criterion requiring external information (e.g. "every number traces to source doc"), do NOT fabricate verification and do NOT assume the worst. Score the in-document proxy only: internal consistency, presence of source citations and period/basis labels within the document, and whether repeated figures are identical across sections.
+- IM/CIM PDFs: treat extracted PAGE N markers as slides. If metadata says ~48–55 pages, Section Coverage cannot be Level 1 or 2 for "thin deck / fewer than 40 slides." Judge missing sections from headings in the extract, not from absent images.
+- Missing chart pixels, logos, or footnote layout in the extract is not "unsourced" or "sector block absent." Only score those failures if the surrounding headings and numbers are also missing.
 
 ## Guard against inflation (equally important)
 - An unverifiable claim is not "verified." A number with no stated basis is not "sourced" just because it looks plausible.
@@ -344,6 +351,7 @@ Metadata (context only — must not influence the score):
 - Project: ${ctx.project}
 - File name: ${ctx.fileName}
 - Document type: ${ctx.documentType}
+${ctx.pages ? `- Page count of the uploaded file: ${ctx.pages}` : ""}
 
 ## Rubric (exact JSON keys = dimension names; Level 1-5 descriptors define the quality ladder)
 ${buildRubricBlock(ctx.dimensions)}
@@ -373,7 +381,17 @@ Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).
 
 function documentUserText(instruction, extracted) {
   const body = extracted.text?.trim();
-  if (body) return `${instruction}\n\n--- DOCUMENT TEXT (${extracted.pages || "?"} pages) ---\n${body}`;
+  const pages = Number(extracted.pages || 0);
+  const header = pages
+    ? [
+        `## Document extract`,
+        `This is the full uploaded PDF (${pages} pages). Page count for coverage/SLA-style checks is ${pages} — do not infer "thin deck" or "fewer than 30 slides" from missing slide numbers in text.`,
+        `Charts, logos, and table formatting may not appear as images here. That is extraction loss, not a missing section. Do not assign Level 1 or 2 because a visual is absent from this text dump.`,
+        `Score the substance that is present (sections, numbers, narrative, financials, risks).`,
+        "",
+      ].join("\n")
+    : "";
+  if (body) return `${instruction}\n\n${header}--- DOCUMENT TEXT START ---\n${body}\n--- DOCUMENT TEXT END ---`;
   return `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. This is a technical extraction issue, not a quality failure. Do NOT score 1–2 for unseen pages. Use Level 3 unless failure is obvious from the remaining text.]`;
 }
 
@@ -431,10 +449,10 @@ function averageDualScores(ctx, claude, gpt) {
   let useClaude = Boolean(claude);
   let useGpt = Boolean(gpt);
   if (useClaude && useGpt && claudeMean != null && gptMean != null) {
-    if (gptMean <= 1.6 && claudeMean >= 2.8) {
+    if (gptMean <= 2.2 && claudeMean >= 3.0) {
       console.warn(`[assess] Ignoring GPT (mean ${gptMean.toFixed(2)}) — looks like a blind/unseen-document score`);
       useGpt = false;
-    } else if (claudeMean <= 1.6 && gptMean >= 2.8) {
+    } else if (claudeMean <= 2.2 && gptMean >= 3.0) {
       console.warn(`[assess] Ignoring Claude (mean ${claudeMean.toFixed(2)}) — looks like a blind/unseen-document score`);
       useClaude = false;
     }
@@ -455,9 +473,16 @@ function averageDualScores(ctx, claude, gpt) {
       .filter((n) => n != null && Number.isFinite(Number(n)))
       .map(Number);
 
-    scores[d.dim_key] = vals.length
-      ? roundScore(vals.reduce((a, b) => a + b, 0) / vals.length)
-      : 3;
+    if (!vals.length) {
+      scores[d.dim_key] = 3;
+    } else if (vals.length === 1) {
+      scores[d.dim_key] = roundScore(vals[0]);
+    } else {
+      const hi = Math.max(...vals);
+      const lo = Math.min(...vals);
+      // If one model is much harsher, it likely missed content in the extract — keep the higher.
+      scores[d.dim_key] = hi - lo >= 1.5 ? roundScore(hi) : roundScore(vals.reduce((a, b) => a + b, 0) / vals.length);
+    }
 
     const parts = [];
     if (useClaude && claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
@@ -596,7 +621,7 @@ export async function runAssessment(ctx, options = {}) {
 
   try {
     const extracted = await extractDocumentText(ctx.filePath, ctx.mimeType, ctx.fileName);
-    const prompt = buildScoringPrompt(ctx);
+    const prompt = buildScoringPrompt({ ...ctx, pages: extracted.pages });
     const jobs = [];
     if (hasClaude) jobs.push(anthropicAssessment(ctx, extracted, prompt).then((r) => ({ name: "claude", result: r })));
     if (hasOpenAi) jobs.push(openaiAssessment(ctx, extracted, prompt).then((r) => ({ name: "openai", result: r })));
