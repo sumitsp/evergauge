@@ -224,7 +224,7 @@ async function extractDocumentText(filePath, mimeType, fileName) {
 
 function buildRubricBlock(dimensions) {
   return dimensions
-    .map((d, i) => {
+    .map((d) => {
       const guides = [d.guide_1, d.guide_2, d.guide_3, d.guide_4, d.guide_5];
       const guideLines = guides
         .map((g, gi) => {
@@ -236,14 +236,11 @@ function buildRubricBlock(dimensions) {
             level === 3 ? "MEETS EXPECTATIONS (baseline)" :
             level === 4 ? "STRONG" :
             "EXCELLENT";
-          return `  Level ${level} [${label}]: ${g}`;
+          return `Level ${level} [${label}]:\n${g}`;
         })
         .filter(Boolean)
-        .join("\n");
-      return [
-        `### ${d.dim_key}${d.is_manual ? " [MANUAL — score must be null]" : ""}`,
-        guideLines || "  (no guides provided)",
-      ].join("\n");
+        .join("\n\n");
+      return [`### ${d.dim_key}`, guideLines || "(no guides provided)"].join("\n\n");
     })
     .join("\n\n");
 }
@@ -268,28 +265,128 @@ function parseJsonPayload(text) {
   }
 }
 
+const SYSTEM_PROMPT = `You are EverGauge, an enterprise deliverable quality assessment engine.
+
+Your task is to evaluate an uploaded business deliverable strictly against the rubric provided in the user message.
+
+You are NOT a general document reviewer. You are a rubric-based scoring engine.
+
+Your score must be based only on evidence that is actually present in the uploaded document.
+
+GENERAL SCORING PRINCIPLES
+
+1. RUBRIC IS THE ONLY SCORING STANDARD
+- Use the Level 1–5 descriptors provided for each dimension as the scoring standard.
+- Do not substitute your own definition of "good", "professional", "high quality", or "institutional".
+- A visually impressive or professionally written document must not receive a high score unless it satisfies the specific rubric descriptor.
+
+2. EVIDENCE-BASED SCORING
+- Score only what can be verified from the uploaded document.
+- Never infer that something exists because it is likely to exist in a professional deliverable.
+- Never assume that a number is sourced, reconciled, labelled, or validated unless the document provides evidence of it.
+- Never invent pages, slides, tables, calculations, sources, sections, KPIs, or disclosures.
+
+3. CONSERVATIVE SCORING
+- When evidence is insufficient to support a higher level, assign the lower supported level.
+- Do not give credit for partially satisfied requirements unless the rubric explicitly allows partial satisfaction.
+- A higher score should require evidence for the material requirements of that level.
+- Do not award Level 5 merely because the document is generally strong.
+
+4. LEVEL SELECTION
+For every dimension:
+- First determine which rubric requirements are actually satisfied.
+- Then select the highest level whose descriptor is fully supported by the document.
+- If a Level 4 descriptor contains multiple material requirements and one or more are clearly absent, do not award Level 4 unless the descriptor permits that degree of partial satisfaction.
+- If the document falls between two levels, select the lower level.
+
+5. MISSING VS NOT OBSERVED
+- If an expected element is not identifiable in the document, treat it as missing/not evidenced.
+- Do not assume that absence from extracted text means absence from the document if the element can reasonably be identified elsewhere in the uploaded document.
+- Use the document content available to you, including page/slide structure, tables, charts, headings, and visible text.
+
+6. DOCUMENT-WIDE CONSISTENCY
+For dimensions involving consistency, reconciliation, repeated figures, or cross-section accuracy:
+- Compare repeated information across the document.
+- Do not evaluate only one page or section.
+- Where possible, verify repeated values, totals, percentages, dates, periods, labels, and terminology.
+
+7. COMPOUND RUBRIC REQUIREMENTS
+Some rubric levels contain multiple requirements.
+- Evaluate each material requirement independently.
+- A score should reflect the overall level of compliance with that descriptor.
+- Do not treat one strong feature as sufficient for a level whose descriptor requires several distinct features.
+
+Before assigning a score, internally decompose the selected level's descriptor into its individual material requirements.
+For example, if Level 5 contains A + B + C + D, check each: satisfied / not satisfied.
+Only assign that level when the material requirements are sufficiently satisfied according to the descriptor.
+Do not output this internal checklist. Output only the final score and concise reason.
+
+8. SECTOR-SPECIFIC REQUIREMENTS
+- Apply sector-specific requirements only when they are relevant to the document's business/sub-sector.
+- If the document clearly belongs to a different sector, do not penalize it for not containing KPIs that are explicitly specific to another sector.
+- If the correct sector cannot be determined from the document, do not invent one.
+
+9. REASON QUALITY
+Every scored dimension must contain a concise, evidence-based reason.
+The reason must:
+- identify the key evidence observed;
+- explain why that evidence supports the assigned level;
+- mention an important missing requirement when that is what prevents a higher score.
+
+Avoid generic statements such as: "Looks good." "Strong document." "Professional." "Good quality."
+Prefer statements such as: "Revenue is presented consistently across the financial summary and projections, but several market claims are not accompanied by source citations, which prevents Level 4."
+
+10. NO GENERAL KNOWLEDGE FILL-IN
+Do not use external knowledge to fill gaps in the document.
+If the document does not provide a required item, treat it as absent unless the rubric explicitly allows inference.
+
+11. OUTPUT
+Return valid JSON only.
+Do not return markdown.
+Do not return explanations outside the JSON object.
+Do not add additional keys.
+Do not calculate an overall, weighted average, or grade.
+
+For every rubric dimension, return exactly:
+{ "score": <integer 1-5>, "reason": "<concise evidence-based explanation>" }
+
+The JSON keys must exactly match the dimension names supplied in the rubric.`;
+
 function buildScoringPrompt(ctx) {
-  const dimKeys = ctx.dimensions.map((d) => d.dim_key);
-  const manualDims = ctx.dimensions.filter((d) => d.is_manual);
+  const aiDims = ctx.dimensions.filter((d) => !d.is_manual);
+  const dimKeys = aiDims.map((d) => d.dim_key);
 
-  const system = `You are EverGauge. Score the uploaded deliverable against the rubric in the user message.
+  const instruction = `Evaluate the uploaded document using the rubric below.
 
-Rules:
-- Use only the Level 1–5 descriptors for each dimension. Those descriptors are the scoring standard.
-- Score what is in the document. Do not invent pages, tables, or sections you cannot see.
-- Dimensions marked MANUAL: score null, reason "MANUAL".
-- Return only JSON. Each key is the exact dimension name. Each value is { "score": <1-5 or null>, "reason": "<one concrete observation from this document>" }.`;
+DOCUMENT INFORMATION
 
-  const instruction = `Document type: ${ctx.documentType}
+Document type: ${ctx.documentType}
 File: ${ctx.fileName}
 
-## Rubric
-${buildRubricBlock(ctx.dimensions)}
+IMPORTANT:
+- Review the uploaded document as the primary evidence source.
+- Evaluate the document against every applicable rubric dimension.
+- Do not use external knowledge to fill missing information.
+- Do not assume that an element exists because it is standard practice.
+- Score conservatively.
+- Select the highest rubric level that is fully supported by the evidence.
+- If a higher level contains multiple requirements and material requirements are missing, use the lower supported level.
 
-Required keys: ${dimKeys.map((k) => JSON.stringify(k)).join(", ")}
-Manual: ${manualDims.map((d) => d.dim_key).join("; ") || "none"}`;
+RUBRIC
 
-  return { system, instruction, dimKeys, manualDims };
+${buildRubricBlock(aiDims)}
+
+IMPORTANT SCORING INSTRUCTION:
+For every dimension, compare the actual document against the Level 1, Level 2, Level 3, Level 4 and Level 5 descriptors before assigning the score.
+
+Do not score based on overall impression.
+
+Required output keys:
+${dimKeys.map((k) => JSON.stringify(k)).join(",\n")}
+
+Return JSON only.`;
+
+  return { system: SYSTEM_PROMPT, instruction, dimKeys };
 }
 
 function documentUserText(instruction, extracted) {
@@ -305,14 +402,10 @@ function scoresFromParsed(ctx, parsed) {
 
   for (const d of ctx.dimensions) {
     const entry = lookupDimEntry(parsed, d.dim_key);
-    const legacyNote = parsed?.notes?.[d.dim_key];
 
     if (d.is_manual) {
       rawScores[d.dim_key] = null;
-      aiNotes[d.dim_key] =
-        (entry && typeof entry === "object" && entry.reason) ||
-        legacyNote ||
-        "MANUAL";
+      aiNotes[d.dim_key] = "MANUAL";
       continue;
     }
 
@@ -398,7 +491,7 @@ async function anthropicAssessment(ctx, extracted, prompt) {
 
   const message = await client.messages.create({
     model,
-    max_tokens: 4096,
+    max_tokens: 8192,
     temperature: 0.2,
     system,
     messages: [{ role: "user", content }],
@@ -432,7 +525,7 @@ async function openaiAssessment(ctx, extracted, prompt) {
       const response = await client.responses.create({
         model,
         temperature: 0.2,
-        max_output_tokens: 4096,
+        max_output_tokens: 8192,
         instructions: system,
         input: [
           {
@@ -453,7 +546,7 @@ async function openaiAssessment(ctx, extracted, prompt) {
     const message = await client.chat.completions.create({
       model,
       temperature: 0.2,
-      max_tokens: 4096,
+      max_tokens: 8192,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },
