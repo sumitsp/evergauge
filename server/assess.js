@@ -123,14 +123,10 @@ function lookupDimEntry(parsed, dimKey) {
   return null;
 }
 
-/**
- * Pass Claude scores through unchanged. No average targeting / batch lift —
- * the prompt already requires honest use of the full 1–5 range.
- */
-function calibrateScoreBatch(rawScores) {
-  const vals = Object.values(rawScores).filter((n) => n != null && Number.isFinite(Number(n))).map(Number);
-  const rawAvg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-  return { scores: { ...rawScores }, lift: 0, rawAvg };
+function modelMean(rawScores) {
+  const vals = Object.values(rawScores || {}).filter((n) => n != null && Number.isFinite(Number(n))).map(Number);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
 }
 
 function stubAssessment(ctx) {
@@ -266,7 +262,6 @@ function buildRubricBlock(dimensions) {
         .join("\n");
       return [
         `### ${d.dim_key}${d.is_manual ? " [MANUAL — score must be null]" : ""}`,
-        "Use Level 1–5 as the quality ladder. Award the level whose description best matches the balance of observable evidence — not the highest level with a single trace.",
         guideLines || "  (no guides provided)",
       ].join("\n");
     })
@@ -297,108 +292,33 @@ function buildScoringPrompt(ctx) {
   const dimKeys = ctx.dimensions.map((d) => d.dim_key);
   const manualDims = ctx.dimensions.filter((d) => d.is_manual);
 
-  const system = `You are EverGauge, Evernile's quality assessment engine. You score investment-banking deliverables (teasers, IMs/CIMs, financial models) against a fixed rubric, the way a demanding but fair managing director marks a real submission: evidence-first, calibrated, and willing to use the full 1–5 range.
+  const system = `You are EverGauge. Score the uploaded deliverable against the rubric in the user message.
 
-## Prime directive
-Score only what you can actually observe in the document. Your job is discrimination, not encouragement — a score is useful only if a 4 means something different from a 3. Do NOT target any average. Do NOT smooth scores toward the middle. Let the evidence place each dimension wherever it lands.
+Rules:
+- Use only the Level 1–5 descriptors for each dimension. Those descriptors are the scoring standard.
+- Score what is in the document. Do not invent pages, tables, or sections you cannot see.
+- If the input is a text extract of a PDF, charts and layout may be missing; do not treat extraction loss as a missing section.
+- Dimensions marked MANUAL: score null, reason "MANUAL".
+- Return only JSON. Each key is the exact dimension name. Each value is { "score": <1-5 or null>, "reason": "<one concrete observation from this document>" }.`;
 
-## How to score each dimension
-1. Read the Level 1–5 descriptors as the definition of that dimension's quality ladder.
-2. Extract the specific, observable signals named in the descriptors (e.g. "sum of mix % = 100 on every chart", "8 sections in canonical order", "A/P/E labels on every table", "assertion titles with numbers", "BS balances every year without a plug").
-3. Check the document for each signal: present, partial, or absent.
-4. Award the level whose description best matches the BALANCE of what you observe — not the highest level you can find a single trace of.
+  const instruction = `Document type: ${ctx.documentType}
+File: ${ctx.fileName}
+${ctx.pages ? `Pages: ${ctx.pages}` : ""}
 
-## Anchor and meaning of each score
-1 = Poor. The Level-1 failure is genuinely present (broken, unusable, section absent).
-2 = Below expectations. Material failure; major rework needed (matches Level-2).
-3 = Meets expectations. Core content present and client-reviewable, but generic or incomplete on the high-signal items.
-4 = Strong. Most Level-4 markers are observably present; clearly above a competent baseline.
-5 = Excellent. The SPECIFIC institutional markers in the Level-5 descriptor are actually visible in the document — not implied, not assumed.
-Treat Level 3 as the conceptual midpoint, not a default resting place. Move up only when the higher level's markers are genuinely present; move down when the described failure is genuinely there.
-
-## The 3 / 4 / 5 boundary (where scores wrongly cluster — be strict here)
-- Missing/generic high-signal items → 3, even if the document looks polished.
-- Most Level-4 markers observed → 4.
-- If you are INFERRING the Level-5 markers rather than seeing them, it is a 4, not a 5.
-
-## Guard against unfair harshness (keep narrow)
-- Poor or partial text extraction is a technical issue, not a quality failure. Assess what is legible; do not score 1–2 on that basis.
-- You see only the deliverable — not the source data room, delivery logs, or iteration history. For any criterion requiring external information (e.g. "every number traces to source doc"), do NOT fabricate verification and do NOT assume the worst. Score the in-document proxy only: internal consistency, presence of source citations and period/basis labels within the document, and whether repeated figures are identical across sections.
-- IM/CIM PDFs: treat extracted PAGE N markers as slides. If metadata says ~48–55 pages, Section Coverage cannot be Level 1 or 2 for "thin deck / fewer than 40 slides." Judge missing sections from headings in the extract, not from absent images.
-- Missing chart pixels, logos, or footnote layout in the extract is not "unsourced" or "sector block absent." Only score those failures if the surrounding headings and numbers are also missing.
-
-## Guard against inflation (equally important)
-- An unverifiable claim is not "verified." A number with no stated basis is not "sourced" just because it looks plausible.
-- One strong dimension must not halo the others. Score each dimension independently.
-- Partial evidence earns partial credit, not full credit. A single trace of a Level-5 marker is not a 5.
-
-## Differentiation
-Real deliverables are uneven — a 5 on narrative can sit beside a 2 on financial depth. Nearly identical scores across all dimensions almost always mean you under-differentiated; re-examine each against its own evidence before finalizing.
-
-## Manual dimensions
-Dimensions marked MANUAL are scored by a human. Return score: null, reason: "MANUAL".
-
-## Output
-Return ONLY valid JSON — no markdown, no code fences, no prose outside the JSON.
-Each key = the exact dimension name.
-Each value = { "score": <integer 1-5 or null>, "reason": "<Level N: one concrete, dimension-specific observation — name the signal you saw or found missing>" }.
-The reason must cite a specific feature of THIS document, not a restatement of the rubric. No two reasons should be interchangeable.`;
-
-  const instruction = `Assess this ${ctx.documentType} against the rubric below, scoring each dimension on observable evidence in the document.
-
-Metadata (context only — must not influence the score):
-- Employee / owner: ${ctx.employee}
-- Project: ${ctx.project}
-- File name: ${ctx.fileName}
-- Document type: ${ctx.documentType}
-${ctx.pages ? `- Page count of the uploaded file: ${ctx.pages}` : ""}
-
-## Rubric (exact JSON keys = dimension names; Level 1-5 descriptors define the quality ladder)
+## Rubric
 ${buildRubricBlock(ctx.dimensions)}
 
-## Procedure (apply per dimension, then emit JSON)
-1. From the Level descriptors, identify the specific observable signals for this dimension.
-2. Check the document for each: present / partial / absent.
-3. Map to the level whose description best matches the balance of evidence — not the highest level with one trace.
-4. Write a reason naming the specific signal you observed or found missing.
-
-## Required keys (return these and only these)
-${dimKeys.map((k) => JSON.stringify(k)).join(", ")}
-
-Manual (return score null, reason "MANUAL"): ${manualDims.map((d) => d.dim_key).join("; ") || "none"}
-
-## Output shape
-{ "<dimension name>": { "score": 4, "reason": "Level 4: ..." }, ... }
-
-## Before finishing
-- Scores should vary across dimensions where evidence varies; uniform scores signal under-differentiation.
-- Use the full range honestly: 1-2 where the described failure is real, 5 only where Level-5 markers are actually visible.
-- Every reason must be specific to this document and non-interchangeable.
-- JSON only. Exact dimension names as keys. No text outside the JSON.`;
+Required keys: ${dimKeys.map((k) => JSON.stringify(k)).join(", ")}
+Manual: ${manualDims.map((d) => d.dim_key).join("; ") || "none"}`;
 
   return { system, instruction, dimKeys, manualDims };
 }
 
 function documentUserText(instruction, extracted) {
   const body = extracted.text?.trim();
-  const pages = Number(extracted.pages || 0);
-  const header = pages
-    ? [
-        `## Document extract`,
-        `This is the full uploaded PDF (${pages} pages). Page count for coverage/SLA-style checks is ${pages} — do not infer "thin deck" or "fewer than 30 slides" from missing slide numbers in text.`,
-        `Charts, logos, and table formatting may not appear as images here. That is extraction loss, not a missing section. Do not assign Level 1 or 2 because a visual is absent from this text dump.`,
-        `Score the substance that is present (sections, numbers, narrative, financials, risks).`,
-        "",
-      ].join("\n")
-    : "";
-  if (body) return `${instruction}\n\n${header}--- DOCUMENT TEXT START ---\n${body}\n--- DOCUMENT TEXT END ---`;
-  return `${instruction}\n\n--- DOCUMENT TEXT ---\n[Limited extractable text. This is a technical extraction issue, not a quality failure. Do NOT score 1–2 for unseen pages. Use Level 3 unless failure is obvious from the remaining text.]`;
-}
-
-function modelMean(rawScores) {
-  const vals = Object.values(rawScores || {}).filter((n) => n != null && Number.isFinite(Number(n))).map(Number);
-  if (!vals.length) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
+  const pages = extracted.pages ? ` (${extracted.pages} pages)` : "";
+  if (body) return `${instruction}\n\n--- DOCUMENT TEXT${pages} ---\n${body}`;
+  return `${instruction}\n\n--- DOCUMENT TEXT ---\n[No extractable text.]`;
 }
 
 function scoresFromParsed(ctx, parsed) {
@@ -427,10 +347,9 @@ function scoresFromParsed(ctx, parsed) {
       raw = entry;
     }
 
-    let score = clampScore(raw);
-    if (score == null) score = 3;
+    const score = clampScore(raw);
     rawScores[d.dim_key] = score;
-    aiNotes[d.dim_key] = reason || noteFor(d, score);
+    aiNotes[d.dim_key] = reason || (score != null ? noteFor(d, score) : "");
   }
 
   return { rawScores, aiNotes };
@@ -443,23 +362,7 @@ function roundScore(n) {
 function averageDualScores(ctx, claude, gpt) {
   const scores = {};
   const aiNotes = {};
-  const claudeMean = modelMean(claude?.rawScores);
-  const gptMean = modelMean(gpt?.rawScores);
-  // A model that never saw the file typically dumps 1s. Don't let that pull a real score to 1.
-  let useClaude = Boolean(claude);
-  let useGpt = Boolean(gpt);
-  if (useClaude && useGpt && claudeMean != null && gptMean != null) {
-    if (gptMean <= 2.2 && claudeMean >= 3.0) {
-      console.warn(`[assess] Ignoring GPT (mean ${gptMean.toFixed(2)}) — looks like a blind/unseen-document score`);
-      useGpt = false;
-    } else if (claudeMean <= 2.2 && gptMean >= 3.0) {
-      console.warn(`[assess] Ignoring Claude (mean ${claudeMean.toFixed(2)}) — looks like a blind/unseen-document score`);
-      useClaude = false;
-    }
-  }
-  const sources = [];
-  if (useClaude) sources.push(claude);
-  if (useGpt) sources.push(gpt);
+  const sources = [claude, gpt].filter(Boolean);
 
   for (const d of ctx.dimensions) {
     if (d.is_manual) {
@@ -473,21 +376,14 @@ function averageDualScores(ctx, claude, gpt) {
       .filter((n) => n != null && Number.isFinite(Number(n)))
       .map(Number);
 
-    if (!vals.length) {
-      scores[d.dim_key] = 3;
-    } else if (vals.length === 1) {
-      scores[d.dim_key] = roundScore(vals[0]);
-    } else {
-      const hi = Math.max(...vals);
-      const lo = Math.min(...vals);
-      // If one model is much harsher, it likely missed content in the extract — keep the higher.
-      scores[d.dim_key] = hi - lo >= 1.5 ? roundScore(hi) : roundScore(vals.reduce((a, b) => a + b, 0) / vals.length);
-    }
+    scores[d.dim_key] = vals.length
+      ? roundScore(vals.reduce((a, b) => a + b, 0) / vals.length)
+      : null;
 
     const parts = [];
-    if (useClaude && claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
-    if (useGpt && gpt?.aiNotes?.[d.dim_key]) parts.push(`GPT-4o-mini: ${gpt.aiNotes[d.dim_key]}`);
-    aiNotes[d.dim_key] = parts.join("\n") || noteFor(d, scores[d.dim_key]);
+    if (claude?.aiNotes?.[d.dim_key]) parts.push(`Claude: ${claude.aiNotes[d.dim_key]}`);
+    if (gpt?.aiNotes?.[d.dim_key]) parts.push(`GPT-4o-mini: ${gpt.aiNotes[d.dim_key]}`);
+    aiNotes[d.dim_key] = parts.join("\n") || (scores[d.dim_key] != null ? noteFor(d, scores[d.dim_key]) : "");
   }
 
   const scored = ctx.dimensions.filter((d) => !d.is_manual).map((d) => scores[d.dim_key]).filter((n) => n != null);
@@ -580,8 +476,8 @@ function finalizeAssessment(ctx, claude, gpt) {
   const { scores, aiNotes, overall } = averageDualScores(ctx, claude, gpt);
   const derived = buildInsightsFromScores(ctx.dimensions, scores, aiNotes);
   const models = [claude?.model, gpt?.model].filter(Boolean);
-  const claudeAvg = claude ? calibrateScoreBatch(claude.rawScores).rawAvg : null;
-  const gptAvg = gpt ? calibrateScoreBatch(gpt.rawScores).rawAvg : null;
+  const claudeAvg = claude ? modelMean(claude.rawScores) : null;
+  const gptAvg = gpt ? modelMean(gpt.rawScores) : null;
   console.log(
     `[assess] claudeAvg=${claudeAvg != null ? claudeAvg.toFixed(2) : "n/a"} gptAvg=${gptAvg != null ? gptAvg.toFixed(2) : "n/a"} final=${overall} scores=${JSON.stringify(scores)}`
   );
