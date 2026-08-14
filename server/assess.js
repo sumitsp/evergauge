@@ -1,18 +1,15 @@
 import fs from "fs/promises";
 import path from "path";
 import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { DOC_TYPE_RUBRICS } from "./rubrics-catalog.js";
-import { extractText as extractPdfText } from "unpdf";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const MAX_TEXT_CHARS = 120_000;
-const MAX_PDF_BYTES = 32 * 1024 * 1024;
-const MAX_PDF_EMBED_BYTES = 8 * 1024 * 1024;
 
 function hashString(str) {
   let h = 2166136261;
@@ -181,21 +178,6 @@ async function extractPptxText(buf) {
   return parts.join("\n\n");
 }
 
-async function pdfPlainText(buf) {
-  try {
-    const { text, totalPages } = await extractPdfText(new Uint8Array(buf), { mergePages: false });
-    const pages = Array.isArray(text) ? text : [String(text || "")];
-    const labeled = pages
-      .map((p, i) => `--- PAGE ${i + 1} of ${pages.length} ---\n${String(p || "").trim()}`)
-      .filter((p) => p.replace(/--- PAGE.+\n/, "").trim())
-      .join("\n\n");
-    return { text: labeled.slice(0, MAX_TEXT_CHARS), pages: totalPages || pages.length };
-  } catch (err) {
-    console.warn("[assess] PDF text extract failed:", err.message);
-    return { text: "", pages: 0 };
-  }
-}
-
 async function extractDocumentText(filePath, mimeType, fileName) {
   if (!filePath) return { kind: "text", text: "" };
   const buf = await fs.readFile(filePath);
@@ -203,15 +185,13 @@ async function extractDocumentText(filePath, mimeType, fileName) {
   const mime = (mimeType || "").toLowerCase();
 
   if (mime.includes("pdf") || ext === ".pdf") {
-    const extracted = await pdfPlainText(buf);
-    const embed = buf.length <= MAX_PDF_EMBED_BYTES;
-    console.log(`[assess] PDF ${buf.length} bytes · ${extracted.pages} pages · ${extracted.text.length} chars · embed=${embed}`);
+    console.log(`[assess] PDF ${buf.length} bytes · sending original file to both models`);
     return {
       kind: "pdf",
-      base64: embed ? buf.toString("base64") : null,
+      buffer: buf,
+      base64: buf.toString("base64"),
       bytes: buf.length,
-      pages: extracted.pages,
-      text: extracted.text,
+      fileName: fileName || "document.pdf",
     };
   }
 
@@ -297,13 +277,11 @@ function buildScoringPrompt(ctx) {
 Rules:
 - Use only the Level 1–5 descriptors for each dimension. Those descriptors are the scoring standard.
 - Score what is in the document. Do not invent pages, tables, or sections you cannot see.
-- If the input is a text extract of a PDF, charts and layout may be missing; do not treat extraction loss as a missing section.
 - Dimensions marked MANUAL: score null, reason "MANUAL".
 - Return only JSON. Each key is the exact dimension name. Each value is { "score": <1-5 or null>, "reason": "<one concrete observation from this document>" }.`;
 
   const instruction = `Document type: ${ctx.documentType}
 File: ${ctx.fileName}
-${ctx.pages ? `Pages: ${ctx.pages}` : ""}
 
 ## Rubric
 ${buildRubricBlock(ctx.dimensions)}
@@ -418,25 +396,13 @@ async function anthropicAssessment(ctx, extracted, prompt) {
     content.push({ type: "text", text: documentUserText(instruction, extracted) });
   }
 
-  let message;
-  try {
-    message = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      temperature: 0.2,
-      system,
-      messages: [{ role: "user", content }],
-    });
-  } catch (err) {
-    console.warn("[assess] Claude PDF embed failed, retrying with extracted text:", err.message);
-    message = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      temperature: 0.2,
-      system,
-      messages: [{ role: "user", content: [{ type: "text", text: documentUserText(instruction, extracted) }] }],
-    });
-  }
+  const message = await client.messages.create({
+    model,
+    max_tokens: 4096,
+    temperature: 0.2,
+    system,
+    messages: [{ role: "user", content }],
+  });
 
   const text = (message.content || [])
     .filter((b) => b.type === "text")
@@ -455,19 +421,48 @@ async function openaiAssessment(ctx, extracted, prompt) {
   console.log(`[assess] OpenAI model: ${model}`);
   const client = new OpenAI({ apiKey });
   const { system, instruction } = prompt;
-  const userText = documentUserText(instruction, extracted);
 
-  const message = await client.chat.completions.create({
-    model,
-    temperature: 0.2,
-    max_tokens: 4096,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: userText },
-    ],
-  });
-  const text = message.choices?.[0]?.message?.content || "";
+  let text = "";
+  if (extracted.kind === "pdf" && extracted.buffer) {
+    const uploaded = await client.files.create({
+      file: await toFile(extracted.buffer, extracted.fileName || "document.pdf", { type: "application/pdf" }),
+      purpose: "user_data",
+    });
+    try {
+      const response = await client.responses.create({
+        model,
+        temperature: 0.2,
+        max_output_tokens: 4096,
+        instructions: system,
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_file", file_id: uploaded.id },
+              { type: "input_text", text: instruction },
+            ],
+          },
+        ],
+        text: { format: { type: "json_object" } },
+      });
+      text = response.output_text || "";
+    } finally {
+      await client.files.delete(uploaded.id).catch(() => {});
+    }
+  } else {
+    const message = await client.chat.completions.create({
+      model,
+      temperature: 0.2,
+      max_tokens: 4096,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: documentUserText(instruction, extracted) },
+      ],
+    });
+    text = message.choices?.[0]?.message?.content || "";
+  }
+
   const parsed = parseJsonPayload(text);
   return { model, ...scoresFromParsed(ctx, parsed) };
 }
@@ -517,7 +512,7 @@ export async function runAssessment(ctx, options = {}) {
 
   try {
     const extracted = await extractDocumentText(ctx.filePath, ctx.mimeType, ctx.fileName);
-    const prompt = buildScoringPrompt({ ...ctx, pages: extracted.pages });
+    const prompt = buildScoringPrompt(ctx);
     const jobs = [];
     if (hasClaude) jobs.push(anthropicAssessment(ctx, extracted, prompt).then((r) => ({ name: "claude", result: r })));
     if (hasOpenAi) jobs.push(openaiAssessment(ctx, extracted, prompt).then((r) => ({ name: "openai", result: r })));
