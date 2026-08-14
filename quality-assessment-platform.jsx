@@ -2048,7 +2048,7 @@ function Analytics() {
         </div>
 
         <div className="qa-card reveal">
-          <CardHead title="Top weak areas" sub="Largest average gap to target (5.0) · from MySQL" />
+          <CardHead title="Top weak areas" sub="Largest average gap to target (5.0)" />
           <div style={{ height: 300 }}>
             {weakAreas.length ? (
               <ResponsiveContainer>
