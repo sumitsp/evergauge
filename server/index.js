@@ -26,6 +26,7 @@ import { initSchema, seedIfEmpty, syncEvernileRubrics, seedImaAccess, ensureCore
 import { runAssessment, formatBytes, averageScores, allowedDocType, buildInsightsFromScores } from "./assess.js";
 import { DOC_TYPE_NAMES } from "./rubrics-catalog.js";
 import { assertPortFree } from "./port.js";
+import * as XLSX from "xlsx";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -787,7 +788,7 @@ app.get("/api/bootstrap", async (req, res) => {
                 WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN CONCAT(TIMESTAMPDIFF(WEEK, created_at, NOW()), ' weeks ago')
                 ELSE DATE_FORMAT(created_at, '%b %e, %Y')
               END AS \`when\`
-       FROM rubric_audit ORDER BY created_at DESC LIMIT 20`
+       FROM rubric_audit ORDER BY created_at DESC LIMIT 5`
     );
     const [notifications] = await pool.query(
       `SELECT id, title, body, is_read AS \`read\`, DATE_FORMAT(created_at, '%b %e, %Y %H:%i') AS date
@@ -1445,10 +1446,36 @@ app.get("/api/rubric", async (_req, res) => {
   }
 });
 
+app.get("/api/rubric/audit/export", requireAdmin, async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT actor, action, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM rubric_audit
+       ORDER BY created_at DESC`
+    );
+    const sheet = XLSX.utils.json_to_sheet(
+      rows.map((r) => ({
+        Actor: r.actor,
+        Action: r.action,
+        When: r.created_at,
+      }))
+    );
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, "Audit trail");
+    const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="evergauge-rubric-audit-${stamp}.xlsx"`);
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put("/api/rubric", requireAdmin, async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const { docType, rows, actor = "Admin" } = req.body;
+    const { docType, rows } = req.body;
     if (!docType || !Array.isArray(rows)) {
       return res.status(400).json({ error: "docType and rows required" });
     }
@@ -1457,6 +1484,10 @@ app.put("/api/rubric", requireAdmin, async (req, res) => {
     const docId = docs[0].id;
 
     await conn.beginTransaction();
+    const actor =
+      loggedInReviewer(req.user)
+      || String(req.body?.actor || "").trim()
+      || "Admin";
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const guides = Array.isArray(r.guides) ? r.guides : [];

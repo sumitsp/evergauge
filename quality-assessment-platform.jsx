@@ -2430,11 +2430,13 @@ const RUBRIC_LEVEL_HEADERS = [
 
 function RubricMgmt() {
   const { rubricsByDocType, docTypeMeta, audit, refresh } = useData();
+  const { user } = useAuth();
   const tabs = (rubricsByDocType?.length ? rubricsByDocType : DOC_TYPES.map((name) => ({ name, dimensions: [], sla_note: "" })));
   const [tab, setTab] = useState("");
   const [rows, setRows] = useState([]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!tab && tabs[0]) setTab(tabs[0].name);
@@ -2456,6 +2458,7 @@ function RubricMgmt() {
 
   const meta = tabs.find((t) => t.name === tab) || docTypeMeta?.find((t) => t.name === tab);
   const total = rows.filter((r) => r.on).reduce((a, r) => a + Number(r.weight), 0);
+  const auditRows = (audit || []).slice(0, 5);
 
   const setGuide = (rowIdx, levelIdx, value) => {
     setRows((rs) => rs.map((x, j) => {
@@ -2471,6 +2474,16 @@ function RubricMgmt() {
     }));
   };
 
+  const autoSizeGuide = (el) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    document.querySelectorAll(".qa-rubric-level-input").forEach((el) => autoSizeGuide(el));
+  }, [rows]);
+
   const publish = async () => {
     setSaving(true);
     setMsg("");
@@ -2484,13 +2497,25 @@ function RubricMgmt() {
           desc: guides[4] || r.desc || "",
         };
       });
-      await api.saveRubric(payload, "D. Malhotra", tab);
+      const actor = user?.displayName || user?.employeeName || user?.email || "Admin";
+      await api.saveRubric(payload, actor, tab);
       await refresh();
       setMsg(`${tab} rubric published.`);
     } catch (err) {
       setMsg(err.message || "Failed to publish");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const downloadAudit = async () => {
+    setExporting(true);
+    try {
+      await api.downloadRubricAudit();
+    } catch (err) {
+      setMsg(err.message || "Failed to download audit log");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -2563,8 +2588,12 @@ function RubricMgmt() {
                       <textarea
                         className="qa-textarea sm qa-rubric-level-input"
                         value={(r.guides && r.guides[gi]) || ""}
-                        rows={5}
-                        onChange={(e) => setGuide(i, gi, e.target.value)}
+                        rows={3}
+                        ref={autoSizeGuide}
+                        onChange={(e) => {
+                          setGuide(i, gi, e.target.value);
+                          autoSizeGuide(e.target);
+                        }}
                       />
                     </td>
                   ))}
@@ -2574,14 +2603,21 @@ function RubricMgmt() {
           </table>
         </div>
         <div className="qa-audit">
-          <div className="qa-audit-title"><Activity size={14} /> Audit trail</div>
-          {(audit.length ? audit : []).map((row, i) => (
+          <div className="qa-audit-head">
+            <div className="qa-audit-title"><Activity size={14} /> Audit trail</div>
+            <button className="qa-btn-ghost sm" disabled={exporting} onClick={downloadAudit}>
+              <Download size={14} /> {exporting ? "Preparing…" : "Download full log"}
+            </button>
+          </div>
+          {auditRows.length ? auditRows.map((row, i) => (
             <div key={row.id || i} className="qa-audit-row">
               <CircleDot size={12} color={C.blue} />
               <span><b>{row.who}</b> {row.what}</span>
               <span className="qa-audit-when">{row.when}</span>
             </div>
-          ))}
+          )) : (
+            <div className="qa-muted" style={{ fontSize: 13, padding: "6px 0" }}>No audit events yet.</div>
+          )}
         </div>
       </div>
     </div>
@@ -3633,7 +3669,7 @@ function Styles() {
 .qa-rubric-var-cell{min-width:180px;max-width:220px;}
 .qa-rubric-var-inner{display:flex;flex-direction:column;gap:8px;}
 .qa-rubric-level-cell{min-width:160px;padding:8px !important;}
-.qa-rubric-level-input{width:100%;min-height:110px;font-size:12px;line-height:1.4;resize:vertical;}
+.qa-rubric-level-input{width:100%;min-height:110px;height:auto;font-size:12px;line-height:1.4;resize:none;overflow:hidden;field-sizing:content;}
 .qa-rub-score{display:flex;align-items:center;gap:10px;}
 .qa-rub-score b{font-size:15px;width:30px;}
 .qa-bar5{flex:1;min-width:60px;height:7px;border-radius:6px;background:var(--line);overflow:hidden;}
@@ -3762,8 +3798,9 @@ function Styles() {
 .qa-scoreguide{display:flex;gap:5px;}
 .qa-sg-chip{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:800;}
 .qa-audit{margin-top:20px;border-top:1px solid var(--line);padding-top:16px;}
+.qa-audit-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;}
 .qa-audit-title{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin-bottom:12px;}
+  text-transform:uppercase;letter-spacing:.05em;color:var(--faint);margin:0;}
 .qa-audit-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);padding:6px 0;}
 .qa-audit-row b{color:var(--ink);}
 .qa-audit-when{margin-left:auto;font-size:11.5px;color:var(--faint);}

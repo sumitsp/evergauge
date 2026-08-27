@@ -100,6 +100,27 @@ export const api = {
   rubric: () => request("/api/rubric"),
   saveRubric: (rows, actor, docType) =>
     request("/api/rubric", { method: "PUT", body: JSON.stringify({ rows, actor, docType }) }),
+  downloadRubricAudit: async () => {
+    const headers = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const res = await fetch(`${API_BASE}/api/rubric/audit/export`, { headers });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || res.statusText || "Download failed");
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("Content-Disposition") || "";
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    const filename = match?.[1] || "evergauge-rubric-audit.xlsx";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
   analytics: () => request("/api/analytics"),
   notifications: () => request("/api/notifications"),
   readAllNotifications: () => request("/api/notifications/read-all", { method: "POST" }),

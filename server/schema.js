@@ -78,6 +78,15 @@ export async function initSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Drop old seed/demo audit lines — keep real publish + system sync rows only
+    await conn.query(
+      `DELETE FROM rubric_audit
+       WHERE action LIKE 'raised Sector KPIs%'
+          OR action LIKE 'published rubric v%'
+          OR action LIKE 'enabled % dimension'
+          OR action LIKE 'disabled % dimension'`
+    );
+
     await conn.query(`
       CREATE TABLE IF NOT EXISTS reviews (
         id INT AUTO_INCREMENT PRIMARY KEY,
