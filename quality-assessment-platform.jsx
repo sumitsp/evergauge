@@ -2420,12 +2420,19 @@ function Reviews({ go }) {
 }
 
 /* ============================ RUBRIC MANAGEMENT ============================ */
+const RUBRIC_LEVEL_HEADERS = [
+  { label: "1", bg: "#B42318" },
+  { label: "2", bg: "#C2410C" },
+  { label: "3", bg: "#CA8A04" },
+  { label: "4", bg: "#65A30D" },
+  { label: "5", bg: "#166534" },
+];
+
 function RubricMgmt() {
   const { rubricsByDocType, docTypeMeta, audit, refresh } = useData();
   const tabs = (rubricsByDocType?.length ? rubricsByDocType : DOC_TYPES.map((name) => ({ name, dimensions: [], sla_note: "" })));
   const [tab, setTab] = useState("");
   const [rows, setRows] = useState([]);
-  const [openGuide, setOpenGuide] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -2435,18 +2442,49 @@ function RubricMgmt() {
 
   useEffect(() => {
     const current = tabs.find((t) => t.name === tab);
-    setRows((current?.dimensions || []).map((r) => ({ ...r, on: r.on !== false })));
-    setOpenGuide(null);
+    setRows((current?.dimensions || []).map((r) => {
+      const guides = [...(r.guides || [])];
+      while (guides.length < 5) guides.push("");
+      return {
+        ...r,
+        on: r.on !== false,
+        guides: guides.slice(0, 5),
+        desc: guides[4] || r.desc || "",
+      };
+    }));
   }, [tab, rubricsByDocType]);
 
   const meta = tabs.find((t) => t.name === tab) || docTypeMeta?.find((t) => t.name === tab);
   const total = rows.filter((r) => r.on).reduce((a, r) => a + Number(r.weight), 0);
 
+  const setGuide = (rowIdx, levelIdx, value) => {
+    setRows((rs) => rs.map((x, j) => {
+      if (j !== rowIdx) return x;
+      const guides = [...(x.guides || [])];
+      while (guides.length < 5) guides.push("");
+      guides[levelIdx] = value;
+      return {
+        ...x,
+        guides,
+        desc: levelIdx === 4 ? value : x.desc,
+      };
+    }));
+  };
+
   const publish = async () => {
     setSaving(true);
     setMsg("");
     try {
-      await api.saveRubric(rows, "D. Malhotra", tab);
+      const payload = rows.map((r) => {
+        const guides = [...(r.guides || [])];
+        while (guides.length < 5) guides.push("");
+        return {
+          ...r,
+          guides: guides.slice(0, 5),
+          desc: guides[4] || r.desc || "",
+        };
+      });
+      await api.saveRubric(payload, "D. Malhotra", tab);
       await refresh();
       setMsg(`${tab} rubric published.`);
     } catch (err) {
@@ -2490,65 +2528,47 @@ function RubricMgmt() {
       {msg && <div className="qa-card reveal" style={{ color: msg.includes("Failed") ? C.red : C.emerald }}>{msg}</div>}
 
       <div className="qa-card reveal">
-        <div className="qa-table-wrap">
-          <table className="qa-table rubric-edit">
+        <div className="qa-table-wrap qa-rubric-sheet-wrap">
+          <table className="qa-table rubric-edit qa-rubric-sheet">
             <thead>
-              <tr><th>Variable</th><th>Level 5 definition</th><th>Share</th><th>Type</th><th>Guides</th></tr>
+              <tr>
+                <th className="qa-rubric-th-var">Variable</th>
+                {RUBRIC_LEVEL_HEADERS.map((h) => (
+                  <th key={h.label} className="qa-rubric-th-level" style={{ background: h.bg }}>{h.label}</th>
+                ))}
+              </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => (
-                <React.Fragment key={r.key}>
-                  <tr className="qa-row">
-                    <td><b className="qa-rub-name">{r.key}</b></td>
-                    <td style={{ minWidth: 320, maxWidth: 480 }}>
-                      <textarea
-                        className="qa-textarea sm qa-rub-desc"
-                        value={r.desc || ""}
-                        rows={3}
-                        onChange={(e) => {
-                          const desc = e.target.value;
-                          setRows((rs) => rs.map((x, j) => {
-                            if (j !== i) return x;
-                            const guides = [...(x.guides || [])];
-                            while (guides.length < 5) guides.push("");
-                            guides[4] = desc;
-                            return { ...x, desc, guides };
-                          }));
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <div className="qa-weight-edit">
-                        <input className="qa-input xs" type="number" value={r.weight}
-                          onChange={(e) => setRows((rs) => rs.map((x, j) => j === i ? { ...x, weight: +e.target.value } : x))} />
-                        <span>%</span>
-                      </div>
-                    </td>
-                    <td>
+                <tr className="qa-row" key={r.key}>
+                  <td className="qa-rubric-var-cell">
+                    <div className="qa-rubric-var-inner">
+                      <b className="qa-rub-name">{r.key}</b>
                       <span className="qa-tag" style={{ color: r.is_manual ? C.amber : C.blue, background: `${r.is_manual ? C.amber : C.blue}14` }}>
                         {r.is_manual ? "Manual" : "Scored"}
                       </span>
+                      <div className="qa-weight-edit">
+                        <input
+                          className="qa-input xs"
+                          type="number"
+                          value={r.weight}
+                          onChange={(e) => setRows((rs) => rs.map((x, j) => j === i ? { ...x, weight: +e.target.value } : x))}
+                        />
+                        <span>%</span>
+                      </div>
+                    </div>
+                  </td>
+                  {[0, 1, 2, 3, 4].map((gi) => (
+                    <td key={gi} className="qa-rubric-level-cell">
+                      <textarea
+                        className="qa-textarea sm qa-rubric-level-input"
+                        value={(r.guides && r.guides[gi]) || ""}
+                        rows={5}
+                        onChange={(e) => setGuide(i, gi, e.target.value)}
+                      />
                     </td>
-                    <td>
-                      <button className="qa-link" onClick={() => setOpenGuide(openGuide === i ? null : i)}>
-                        {openGuide === i ? "Hide 1–5" : "Show 1–5"}
-                      </button>
-                    </td>
-                  </tr>
-                  {openGuide === i && (
-                    <tr className="qa-expand">
-                      <td colSpan={5}>
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {(r.guides || []).map((g, gi) => (
-                            <div key={gi} style={{ fontSize: 13, color: C.muted }}>
-                              <b style={{ color: scoreColor(gi + 1) }}>Score {gi + 1}:</b> {g}
-                            </div>
-                          ))}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
+                  ))}
+                </tr>
               ))}
             </tbody>
           </table>
@@ -3605,6 +3625,15 @@ function Styles() {
 .qa-rub-desc{min-height:72px;resize:vertical;line-height:1.45;color:var(--ink);}
 .qa-table.rubric-edit td{vertical-align:top;padding-top:12px;padding-bottom:12px;}
 .qa-rub-desc{font-size:12px;color:var(--muted);}
+.qa-rubric-sheet-wrap{overflow:auto;}
+.qa-table.qa-rubric-sheet{min-width:1100px;border-collapse:separate;border-spacing:0;}
+.qa-table.qa-rubric-sheet thead th{position:sticky;top:0;z-index:2;color:#fff;font-size:13px;font-weight:800;text-align:center;padding:10px 8px;border:0;}
+.qa-rubric-th-var{background:var(--navy, #13294B) !important;min-width:180px;text-align:left !important;padding-left:14px !important;}
+.qa-rubric-th-level{min-width:160px;}
+.qa-rubric-var-cell{min-width:180px;max-width:220px;}
+.qa-rubric-var-inner{display:flex;flex-direction:column;gap:8px;}
+.qa-rubric-level-cell{min-width:160px;padding:8px !important;}
+.qa-rubric-level-input{width:100%;min-height:110px;font-size:12px;line-height:1.4;resize:vertical;}
 .qa-rub-score{display:flex;align-items:center;gap:10px;}
 .qa-rub-score b{font-size:15px;width:30px;}
 .qa-bar5{flex:1;min-width:60px;height:7px;border-radius:6px;background:var(--line);overflow:hidden;}

@@ -158,7 +158,7 @@ async function loadRubricsByDocType() {
         weight: Number(r.weight),
         on: Boolean(r.on),
         is_manual: Boolean(r.is_manual),
-        guides: [r.guide_1, r.guide_2, r.guide_3, r.guide_4, r.guide_5].filter(Boolean),
+        guides: [r.guide_1, r.guide_2, r.guide_3, r.guide_4, r.guide_5].map((g) => g || ""),
       })),
   }));
 }
@@ -1460,10 +1460,15 @@ app.put("/api/rubric", requireAdmin, async (req, res) => {
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const guides = Array.isArray(r.guides) ? r.guides : [];
-      const level5 = r.desc != null && r.desc !== "" ? r.desc : (guides[4] || null);
+      const g = [0, 1, 2, 3, 4].map((idx) => String(guides[idx] ?? "").trim() || null);
+      const level5 = g[4] || (r.desc != null && r.desc !== "" ? r.desc : null);
       await conn.query(
         `UPDATE rubric_dimensions
          SET description = :description,
+             guide_1 = :guide_1,
+             guide_2 = :guide_2,
+             guide_3 = :guide_3,
+             guide_4 = :guide_4,
              guide_5 = :guide_5,
              weight = :weight,
              enabled = :enabled,
@@ -1473,6 +1478,10 @@ app.put("/api/rubric", requireAdmin, async (req, res) => {
           doc: docId,
           dim_key: r.key,
           description: level5 || r.key,
+          guide_1: g[0],
+          guide_2: g[1],
+          guide_3: g[2],
+          guide_4: g[3],
           guide_5: level5,
           weight: r.weight,
           enabled: r.on === false ? 0 : 1,
